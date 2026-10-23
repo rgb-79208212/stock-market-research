@@ -10,7 +10,7 @@ from src.market_data import (
     fetch_stock_snapshot,
 )
 from src.market_analysis import calculate_market_breadth
-from src.time_utils import calculate_time_gap_seconds
+from src.data_quality import assess_snapshot_quality
 
 
 # ============================================================
@@ -174,6 +174,25 @@ if "index_error" in st.session_state:
 
 stock_result = st.session_state.get("market_result")
 index_result = st.session_state.get("index_result")
+
+# 若指数请求失败但股票请求成功，传入无效哨兵值，避免误把“未能检查”当作“检查通过”。
+quality_index_result = index_result
+if stock_result is not None and index_result is None and "index_error" in st.session_state:
+    quality_index_result = {}
+
+quality_result = None
+quality_error = None
+if stock_result is not None:
+    try:
+        quality_result = assess_snapshot_quality(
+            stock_result,
+            index_result=quality_index_result,
+            max_missing_ratio_pct=1.0,
+            max_page_timestamp_spread_seconds=60.0,
+            max_api_gap_seconds=60.0,
+        )
+    except (ValueError, TypeError, KeyError) as exc:
+        quality_error = f"数据质量评估无法完成：{exc}"
 
 
 if stock_result is None and index_result is None:
@@ -360,6 +379,57 @@ if stock_result is not None and index_result is not None:
 
 
 # ============================================================
+# 统一数据质量结论
+# ============================================================
+
+if stock_result is not None:
+    st.divider()
+    st.subheader("统一数据质量评估")
+    st.caption(
+        "质量阈值为本项目设定：涨跌幅缺失比例不超过 1%；分页时间戳跨度不超过 60 秒；"
+        "在同时获取股票和指数数据时，两类接口时间差不超过 60 秒。"
+    )
+
+    if quality_error:
+        st.error(quality_error)
+    elif quality_result is not None:
+        if quality_result["research_ready"]:
+            st.success("基础数据质量门槛通过：可以展示本次快照的描述性市场广度统计。")
+        else:
+            st.error("基础数据质量门槛未通过：暂不展示正式市场广度统计。")
+
+        check_labels = {
+            "record_count_matches": "实际记录数与接口报告总数一致",
+            "security_codes_valid": "证券代码有效",
+            "no_duplicate_codes": "证券代码无重复",
+            "page_timestamps_valid": "分页时间戳完整有效",
+            "page_timestamp_spread_within_threshold": "分页时间戳跨度在阈值内",
+            "change_values_valid": "非空涨跌幅数值有效",
+            "missing_ratio_within_threshold": "涨跌幅缺失比例在阈值内",
+            "api_timestamps_comparable": "股票与指数接口时间可比较（或未要求比较）",
+            "api_gap_within_threshold": "股票与指数接口时间差在阈值内（或未要求比较）",
+        }
+        check_rows = []
+        for key, label in check_labels.items():
+            check_rows.append({
+                "检查项目": label,
+                "结果": "通过" if quality_result["checks"][key] else "未通过",
+            })
+        st.dataframe(pd.DataFrame(check_rows), use_container_width=True, hide_index=True)
+
+        if quality_result["warnings"]:
+            with st.expander("查看数据质量警告", expanded=not quality_result["research_ready"]):
+                for warning in quality_result["warnings"]:
+                    st.warning(warning)
+        else:
+            st.caption("当前检查未产生额外警告。")
+
+        st.info(
+            "“基础数据质量门槛通过”不代表已确认当前处于交易时段，也不证明分页数据来自同一个原子快照。"
+        )
+
+
+# ============================================================
 # 市场广度
 # ============================================================
 
@@ -373,16 +443,18 @@ if stock_result is not None:
         == stock_result["api_reported_total"]
     )
 
-    if not count_matches:
+    if quality_result is None or quality_error:
+        st.error("数据质量评估不可用，不能展示正式市场广度统计。")
+    elif not quality_result["research_ready"]:
         st.error(
-            "股票记录数量检查未通过，不能计算正式市场广度。"
+            "统一数据质量门槛未通过，暂不展示正式市场广度统计。"
+            "请先查看上方各项检查结果和警告。"
         )
     else:
         if not timestamps_consistent:
             st.warning(
-                "注意：分页时间戳存在差异。以下市场广度是对本次"
-                "已获取股票记录的描述性统计，不代表所有记录"
-                "已被证明来自同一个行情时点。"
+                "分页时间戳存在差异，但跨度处于本项目设定阈值内。"
+                "以下统计仅描述本次已获取记录，不证明所有记录来自同一个行情时点。"
             )
         else:
             st.info(

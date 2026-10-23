@@ -5,6 +5,8 @@ import math
 
 import requests
 
+from dotenv import load_dotenv
+
 
 BASE_URL = "https://fuyao.aicubes.cn/api"
 STOCK_SNAPSHOT_URL = f"{BASE_URL}/a-share/prices/snapshot"
@@ -28,6 +30,10 @@ class MarketDataError(Exception):
 
 def _create_session():
     """创建 API 会话，支持本地环境变量和 Streamlit Cloud Secrets。"""
+
+    # 加载项目根目录的 .env；已有系统环境变量不会被覆盖
+    load_dotenv()
+
     api_key = os.getenv("HITHINK_FINANCE_API_KEY")
 
     if not api_key:

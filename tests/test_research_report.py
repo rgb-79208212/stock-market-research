@@ -1,0 +1,107 @@
+
+import unittest
+
+from src.research_report import build_research_report
+
+
+class TestResearchReport(unittest.TestCase):
+
+    def make_inputs(self):
+        stock = {
+            "items": [{"thscode": "000001.SZ"}],
+            "api_timestamp_ms": 100000,
+            "source_api": "test_stock_api",
+        }
+        index = {
+            "items": [{"thscode": "000001.SH"}],
+            "api_timestamp_ms": 100000,
+            "source_api": "test_index_api",
+        }
+        quality = {
+            "research_ready": True,
+            "checks": {
+                "record_count_matches": True,
+                "page_timestamps_valid": True,
+                "page_timestamp_spread_within_threshold": True,
+                "api_timestamps_comparable": True,
+                "api_gap_within_threshold": True,
+            },
+            "metrics": {
+                "page_timestamps_consistent": True,
+                "page_timestamp_spread_seconds": 0.0,
+                "stock_index_api_gap_seconds": 0.0,
+            },
+            "warnings": [],
+            "market_session_verified": False,
+        }
+        breadth = {
+            "valid_change_count": 1,
+            "advance_ratio_pct": 100.0,
+            "decline_ratio_pct": 0.0,
+            "unchanged_ratio_pct": 0.0,
+        }
+        state = {
+            "state": "偏强",
+            "rationale": "测试分类理由",
+            "evidence": ["测试证据"],
+            "metrics": {"advance_ratio_pct": 100.0},
+            "index_results": [],
+            "state_switch_conditions": ["测试切换条件"],
+            "limitations": ["尚未进行历史回测"],
+            "method": {"historically_validated": False},
+        }
+        return stock, index, quality, breadth, state
+
+    def test_build_report_with_quality_passed(self):
+        inputs = self.make_inputs()
+        report = build_research_report(*inputs)
+
+        self.assertEqual(report["report_version"], "1.0")
+        self.assertEqual(report["market_state"]["label"], "偏强")
+        self.assertTrue(report["facts"])
+        breadth_claims = [
+            fact["claim"]
+            for fact in report["facts"]
+            if fact.get("source") == "calculate_market_breadth"
+        ]
+        self.assertTrue(
+            any("平盘占比为 0.0%" in claim for claim in breadth_claims)
+        )
+        self.assertTrue(report["interpretations"])
+        self.assertTrue(report["hypotheses"])
+        self.assertIsNone(
+            report["confidence_basis"]["numeric_probability"]
+        )
+        self.assertFalse(
+            report["evidence_quality"]["historically_validated"]
+        )
+        evidence_quality = report["evidence_quality"]
+
+        self.assertTrue(evidence_quality["page_timestamps_valid"])
+        self.assertTrue(
+            evidence_quality["page_timestamp_spread_within_threshold"]
+        )
+        self.assertTrue(evidence_quality["api_timestamps_comparable"])
+        self.assertTrue(evidence_quality["api_gap_within_threshold"])
+
+        self.assertTrue(evidence_quality["page_timestamps_consistent"])
+        self.assertFalse(evidence_quality["market_session_verified"])
+        self.assertFalse(evidence_quality["independent_source_verified"])
+
+    def test_quality_failure_blocks_report(self):
+        inputs = list(self.make_inputs())
+        inputs[2]["research_ready"] = False
+
+        with self.assertRaises(ValueError):
+            build_research_report(*inputs)
+
+    def test_invalid_input_type_is_rejected(self):
+        inputs = list(self.make_inputs())
+        inputs[3] = None
+
+        with self.assertRaises(ValueError):
+            build_research_report(*inputs)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,12 @@ from src.market_data import (
 )
 from src.market_analysis import calculate_market_breadth
 from src.data_quality import assess_snapshot_quality
+from src.market_state import assess_market_state
+from src.research_report import build_research_report
+from src.llm_analysis import generate_llm_interpretation, LLMAnalysisError
+import hashlib
+import json
+
 
 
 # ============================================================
@@ -61,9 +68,30 @@ def format_api_time(timestamp_ms):
     except (ValueError, TypeError, OverflowError, OSError):
         return "无效时间戳"
 
+def format_unix_seconds(timestamp_seconds):
+    """将 Unix 秒级时间戳转换为北京时间。"""
+    if timestamp_seconds is None:
+        return "未提供"
+
+    try:
+        timestamp = float(timestamp_seconds)
+
+        if not pd.notna(timestamp):
+            return "无效时间戳"
+
+        dt = datetime.fromtimestamp(
+            timestamp,
+            tz=timezone.utc,
+        ).astimezone(ZoneInfo("Asia/Shanghai"))
+
+        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    except (ValueError, TypeError, OverflowError, OSError):
+        return "无效时间戳"
+
 
 def format_percent(value):
-    """格式化百分数。API 涨跌幅单位本身就是百分数。"""
+    """格式化百分数。"""
     try:
         number = float(value)
         if pd.notna(number):
@@ -104,23 +132,6 @@ def timestamp_gap_seconds(timestamp_a, timestamp_b):
         return None
 
 
-def get_item_value(item, key):
-    """安全读取接口记录中的字段。"""
-    value = item.get(key)
-
-    if value is None:
-        return None
-
-    try:
-        number = float(value)
-        if pd.notna(number):
-            return number
-    except (TypeError, ValueError, OverflowError):
-        pass
-
-    return None
-
-
 # ============================================================
 # 数据获取
 # ============================================================
@@ -128,21 +139,23 @@ def get_item_value(item, key):
 st.subheader("实时行情")
 
 st.write(
-    "点击按钮获取股票全市场快照和三个主要指数的快照。"
+    "点击按钮获取全市场股票快照和三个主要指数的快照。"
     "股票全市场接口需要分页请求，获取过程可能需要一些时间。"
 )
 
 if st.button("获取最新行情", type="primary"):
-    # 每次重新获取前，清除上一轮结果，避免失败后继续显示旧数据。
-    st.session_state.pop("market_result", None)
-    st.session_state.pop("index_result", None)
-    st.session_state.pop("market_error", None)
-    st.session_state.pop("index_error", None)
+    # 重新获取前清除旧结果，防止请求失败后沿用旧行情。
+    for key in (
+        "market_result",
+        "index_result",
+        "market_error",
+        "index_error",
+    ):
+        st.session_state.pop(key, None)
 
     with st.spinner("正在获取全市场股票和指数数据，请稍候……"):
         try:
-            stock_result = fetch_stock_snapshot()
-            st.session_state["market_result"] = stock_result
+            st.session_state["market_result"] = fetch_stock_snapshot()
         except MarketDataError as exc:
             st.session_state["market_error"] = str(exc)
         except Exception as exc:
@@ -152,8 +165,7 @@ if st.button("获取最新行情", type="primary"):
             )
 
         try:
-            index_result = fetch_index_snapshot()
-            st.session_state["index_result"] = index_result
+            st.session_state["index_result"] = fetch_index_snapshot()
         except MarketDataError as exc:
             st.session_state["index_error"] = str(exc)
         except Exception as exc:
@@ -175,13 +187,21 @@ if "index_error" in st.session_state:
 stock_result = st.session_state.get("market_result")
 index_result = st.session_state.get("index_result")
 
-# 若指数请求失败但股票请求成功，传入无效哨兵值，避免误把“未能检查”当作“检查通过”。
+# 如果股票获取成功，但指数请求失败，传入无效哨兵值，
+# 让数据质量模块明确判定指数比较不可用。
 quality_index_result = index_result
-if stock_result is not None and index_result is None and "index_error" in st.session_state:
+
+if (
+    stock_result is not None
+    and index_result is None
+    and "index_error" in st.session_state
+):
     quality_index_result = {}
+
 
 quality_result = None
 quality_error = None
+
 if stock_result is not None:
     try:
         quality_result = assess_snapshot_quality(
@@ -203,7 +223,7 @@ if stock_result is None and index_result is None:
 
 
 # ============================================================
-# 指数快照
+# 主要指数表现
 # ============================================================
 
 if index_result is not None:
@@ -211,27 +231,25 @@ if index_result is not None:
     st.subheader("主要指数表现")
 
     index_items = index_result["items"]
-
     columns = st.columns(3)
 
     for column, item in zip(columns, index_items):
         code = item.get("thscode", "未知代码")
         name = INDEX_NAMES.get(code, code)
-        last_price = item.get("last_price")
-        change_pct = item.get("price_change_ratio_pct")
 
         with column:
             st.metric(
                 label=name,
-                value=format_price(last_price),
-                delta=format_percent(change_pct),
+                value=format_price(item.get("last_price")),
+                delta=format_percent(
+                    item.get("price_change_ratio_pct")
+                ),
             )
             st.caption(f"证券代码：{code}")
 
-    index_time = index_result.get("api_timestamp_ms")
-
     st.caption(
-        f"指数接口数据时间：{format_api_time(index_time)}"
+        "指数接口数据时间："
+        f"{format_api_time(index_result.get('api_timestamp_ms'))}"
     )
     st.caption(
         f"来源：{index_result.get('source_api', '未提供')}"
@@ -239,7 +257,7 @@ if index_result is not None:
 
 
 # ============================================================
-# 股票数据质量
+# 全市场股票数据质量
 # ============================================================
 
 if stock_result is not None:
@@ -265,9 +283,7 @@ if stock_result is not None:
     if count_matches:
         st.success("记录数量检查通过：实际记录数与接口报告总数相符。")
     else:
-        st.error(
-            "记录数量检查未通过：实际记录数与接口报告总数不一致。"
-        )
+        st.error("记录数量检查未通过：实际记录数与接口报告总数不一致。")
 
     valid_timestamps = []
 
@@ -279,15 +295,12 @@ if stock_result is not None:
         except (TypeError, ValueError, OverflowError):
             continue
 
-    if (
-            page_timestamps
-            and len(valid_timestamps) == len(page_timestamps)
-    ):
+    if page_timestamps and len(valid_timestamps) == len(page_timestamps):
         earliest_timestamp = min(valid_timestamps)
         latest_timestamp = max(valid_timestamps)
         timestamp_spread_seconds = (
-                                           latest_timestamp - earliest_timestamp
-                                   ) / 1000
+            latest_timestamp - earliest_timestamp
+        ) / 1000
 
         if timestamps_consistent:
             st.success("分页时间戳检查通过：所有页面的时间戳相同。")
@@ -296,10 +309,8 @@ if stock_result is not None:
             )
         else:
             st.warning(
-                "分页时间戳存在差异。"
-                "接口文档未保证各页时间戳必须相同，"
-                "因此不能仅凭该差异断定数据无效；"
-                "同时也不能据此确认所有分页属于同一行情时点。"
+                "分页时间戳存在差异。不能仅凭该差异断定数据无效，"
+                "但也不能据此确认所有分页属于同一行情时点。"
             )
 
         st.metric(
@@ -313,11 +324,10 @@ if stock_result is not None:
     else:
         st.warning(
             "部分分页时间戳缺失或无效，无法确认全部分页的时间范围。"
-            "请谨慎解读市场广度结果。"
         )
 
     st.caption(
-        f"股票接口数据时间："
+        "股票接口数据时间："
         f"{format_api_time(stock_result.get('api_timestamp_ms'))}"
     )
     st.caption(
@@ -325,18 +335,19 @@ if stock_result is not None:
     )
 
     with st.expander("查看逐页时间戳"):
-        timestamp_rows = []
-
-        for page_number, timestamp in enumerate(page_timestamps, start=1):
-            timestamp_rows.append(
-                {
-                    "页码": page_number,
-                    "原始时间戳（毫秒）": (
-                        str(timestamp) if timestamp is not None else "缺失"
-                    ),
-                    "转换后的北京时间": format_api_time(timestamp),
-                }
+        timestamp_rows = [
+            {
+                "页码": page_number,
+                "原始时间戳（毫秒）": (
+                    str(timestamp) if timestamp is not None else "缺失"
+                ),
+                "转换后的北京时间": format_api_time(timestamp),
+            }
+            for page_number, timestamp in enumerate(
+                page_timestamps,
+                start=1,
             )
+        ]
 
         if timestamp_rows:
             st.dataframe(
@@ -369,7 +380,7 @@ if stock_result is not None and index_result is not None:
         if gap <= TIME_GAP_WARNING_SECONDS:
             st.info(
                 f"时间差未超过 {TIME_GAP_WARNING_SECONDS} 秒的提示阈值。"
-                "这不代表两组数据完全同步，也不能证明它们属于同一交易时点。"
+                "这不代表两组数据完全同步。"
             )
         else:
             st.warning(
@@ -379,24 +390,30 @@ if stock_result is not None and index_result is not None:
 
 
 # ============================================================
-# 统一数据质量结论
+# 统一数据质量评估
 # ============================================================
 
 if stock_result is not None:
     st.divider()
     st.subheader("统一数据质量评估")
+
     st.caption(
-        "质量阈值为本项目设定：涨跌幅缺失比例不超过 1%；分页时间戳跨度不超过 60 秒；"
-        "在同时获取股票和指数数据时，两类接口时间差不超过 60 秒。"
+        "项目阈值：涨跌幅缺失比例不超过 1%；分页时间戳跨度不超过 "
+        "60 秒；需要比较股票与指数数据时，接口时间差不超过 60 秒。"
     )
 
     if quality_error:
         st.error(quality_error)
+
     elif quality_result is not None:
         if quality_result["research_ready"]:
-            st.success("基础数据质量门槛通过：可以展示本次快照的描述性市场广度统计。")
+            st.success(
+                "基础数据质量门槛通过：可以展示本次快照的描述性统计。"
+            )
         else:
-            st.error("基础数据质量门槛未通过：暂不展示正式市场广度统计。")
+            st.error(
+                "基础数据质量门槛未通过：暂不展示正式市场统计和状态结论。"
+            )
 
         check_labels = {
             "record_count_matches": "实际记录数与接口报告总数一致",
@@ -406,26 +423,41 @@ if stock_result is not None:
             "page_timestamp_spread_within_threshold": "分页时间戳跨度在阈值内",
             "change_values_valid": "非空涨跌幅数值有效",
             "missing_ratio_within_threshold": "涨跌幅缺失比例在阈值内",
-            "api_timestamps_comparable": "股票与指数接口时间可比较（或未要求比较）",
-            "api_gap_within_threshold": "股票与指数接口时间差在阈值内（或未要求比较）",
+            "api_timestamps_comparable": "股票与指数接口时间可比较",
+            "api_gap_within_threshold": "股票与指数接口时间差在阈值内",
         }
-        check_rows = []
-        for key, label in check_labels.items():
-            check_rows.append({
+
+        check_rows = [
+            {
                 "检查项目": label,
-                "结果": "通过" if quality_result["checks"][key] else "未通过",
-            })
-        st.dataframe(pd.DataFrame(check_rows), use_container_width=True, hide_index=True)
+                "结果": (
+                    "通过"
+                    if quality_result["checks"][key]
+                    else "未通过"
+                ),
+            }
+            for key, label in check_labels.items()
+        ]
+
+        st.dataframe(
+            pd.DataFrame(check_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         if quality_result["warnings"]:
-            with st.expander("查看数据质量警告", expanded=not quality_result["research_ready"]):
+            with st.expander(
+                "查看数据质量警告",
+                expanded=not quality_result["research_ready"],
+            ):
                 for warning in quality_result["warnings"]:
                     st.warning(warning)
         else:
             st.caption("当前检查未产生额外警告。")
 
         st.info(
-            "“基础数据质量门槛通过”不代表已确认当前处于交易时段，也不证明分页数据来自同一个原子快照。"
+            "质量门槛通过不代表已确认当前处于交易时段，"
+            "也不证明分页数据来自同一个原子快照。"
         )
 
 
@@ -433,42 +465,39 @@ if stock_result is not None:
 # 市场广度
 # ============================================================
 
+breadth_for_state = None
+
 if stock_result is not None:
     st.divider()
     st.subheader("市场广度")
 
-    timestamps_consistent = stock_result["page_timestamps_consistent"]
-    count_matches = (
-        stock_result["actual_record_count"]
-        == stock_result["api_reported_total"]
-    )
-
-    if quality_result is None or quality_error:
+    if quality_error or quality_result is None:
         st.error("数据质量评估不可用，不能展示正式市场广度统计。")
+
     elif not quality_result["research_ready"]:
         st.error(
             "统一数据质量门槛未通过，暂不展示正式市场广度统计。"
-            "请先查看上方各项检查结果和警告。"
+            "请先查看上方检查结果和警告。"
         )
+
     else:
-        if not timestamps_consistent:
+        if not stock_result["page_timestamps_consistent"]:
             st.warning(
-                "分页时间戳存在差异，但跨度处于本项目设定阈值内。"
-                "以下统计仅描述本次已获取记录，不证明所有记录来自同一个行情时点。"
+                "分页时间戳存在差异，但跨度处于项目设定阈值内。"
+                "以下统计只描述本次已获取记录，不证明所有记录来自同一行情时点。"
             )
         else:
             st.info(
-                "分页时间戳一致，但这不能单独证明所有记录来自"
-                "同一个原子行情快照。"
+                "分页时间戳一致，但这不能单独证明所有记录来自同一个原子快照。"
             )
 
         try:
             breadth = calculate_market_breadth(stock_result["items"])
+            breadth_for_state = breadth
 
             st.caption(
-                "计算口径：上涨为涨跌幅大于 0；"
-                "下跌为涨跌幅小于 0；平盘为涨跌幅等于 0。"
-                "缺失涨跌幅记录不计入有效分母。"
+                "计算口径：上涨为涨跌幅大于 0；下跌为小于 0；"
+                "平盘为等于 0。缺失涨跌幅记录不计入有效分母。"
             )
 
             metric1, metric2, metric3 = st.columns(3)
@@ -477,27 +506,21 @@ if stock_result is not None:
             metric2.metric("下跌标的", f"{breadth['decliners']:,}")
             metric3.metric("平盘标的", f"{breadth['unchanged']:,}")
 
-            ratio1, ratio2, ratio3 = st.columns(3)
+            ratio1, ratio2, ratio3, ratio4 = st.columns(4)
 
             ratio1.metric(
                 "上涨占比",
-                (
-                    f"{breadth['advance_ratio_pct']:.2f}%"
-                    if breadth["advance_ratio_pct"] is not None
-                    else "暂无数据"
-                ),
+                f"{breadth['advance_ratio_pct']:.2f}%",
             )
-
             ratio2.metric(
                 "下跌占比",
-                (
-                    f"{breadth['decline_ratio_pct']:.2f}%"
-                    if breadth["decline_ratio_pct"] is not None
-                    else "暂无数据"
-                ),
+                f"{breadth['decline_ratio_pct']:.2f}%",
             )
-
             ratio3.metric(
+                "平盘占比",
+                f"{breadth['unchanged_ratio_pct']:.2f}%",
+            )
+            ratio4.metric(
                 "有效涨跌幅记录",
                 f"{breadth['valid_change_count']:,}",
             )
@@ -516,22 +539,375 @@ if stock_result is not None:
             st.bar_chart(chart_data)
 
             st.caption(
-                f"纳入统计的有效涨跌幅记录："
-                f"{breadth['valid_change_count']:,}；"
-                f"缺失涨跌幅记录："
-                f"{breadth['missing_change_count']:,}。"
+                f"有效涨跌幅记录：{breadth['valid_change_count']:,}；"
+                f"缺失涨跌幅记录：{breadth['missing_change_count']:,}。"
             )
 
             st.info(
-                "以上为本次获取数据的描述性统计，不代表未来走势，"
+                "以上是本次快照的描述性统计，不代表未来走势，"
                 "也不构成买卖或仓位建议。"
             )
 
         except (ValueError, KeyError, TypeError) as exc:
-            st.error(
-                "市场广度计算未完成。"
-                f"原因：{exc}"
+            breadth_for_state = None
+            st.error(f"市场广度计算未完成。原因：{exc}")
+
+
+# ============================================================
+# 市场状态研判
+# ============================================================
+state_result = None
+st.divider()
+st.subheader("市场状态研判")
+
+st.caption(
+    "规则引擎 v1：结合全市场上涨占比和三个主要指数的涨跌方向。"
+    "本分类用于描述当前快照，阈值尚未经过历史回测验证。"
+)
+
+if stock_result is None:
+    st.info("请先获取最新行情，再进行市场状态研判。")
+
+elif quality_error or quality_result is None:
+    st.error("数据质量评估不可用，不能生成市场状态结论。")
+
+elif not quality_result["research_ready"]:
+    st.error(
+        "数据质量门槛未通过，暂不生成市场状态结论。"
+        "请先查看统一数据质量评估中的未通过项目。"
+    )
+
+elif index_result is None:
+    st.error("缺少主要指数快照，不能生成完整的市场状态结论。")
+
+elif breadth_for_state is None:
+    st.error("市场广度计算不可用，不能生成市场状态结论。")
+
+else:
+    try:
+        state_result = assess_market_state(
+            breadth_for_state,
+            index_result["items"],
+        )
+
+        st.markdown("#### 当前规则分类")
+
+        st.subheader(state_result["state"])
+        st.write(state_result["rationale"])
+
+        st.caption(
+            "这是对已获取快照的规则分类，不是对未来市场涨跌的预测。"
+        )
+
+        st.markdown("#### 主要证据")
+
+        for evidence_item in state_result["evidence"]:
+            st.markdown(f"- {evidence_item}")
+
+        st.markdown("#### 主要指数方向")
+
+        index_rows = []
+
+        for item in state_result["index_results"]:
+            index_rows.append(
+                {
+                    "指数": item["name"],
+                    "代码": item["code"],
+                    "涨跌幅": format_percent(item["change_pct"]),
+                    "方向": item["direction"],
+                }
             )
+
+        st.dataframe(
+            pd.DataFrame(index_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        metrics = state_result["metrics"]
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "上涨占比",
+            f"{metrics['advance_ratio_pct']:.2f}%",
+        )
+        col2.metric(
+            "上涨指数数量",
+            f"{metrics['positive_indices']} / 3",
+        )
+        col3.metric(
+            "下跌指数数量",
+            f"{metrics['negative_indices']} / 3",
+        )
+
+        st.markdown("#### 状态切换条件")
+
+        st.caption(
+            "以下是规则重新评估的条件，不代表达到条件后市场必然上涨或下跌。"
+        )
+
+        for condition in state_result["state_switch_conditions"]:
+            st.markdown(f"- {condition}")
+
+        with st.expander("查看分类方法与研究限制", expanded=True):
+            st.markdown("**本版本采用的上涨占比阈值**")
+
+            method = state_result["method"]
+
+            st.write(
+                f"- 广泛偏强参考阈值："
+                f"{method['breadth_strong_threshold_pct']:.0f}%"
+            )
+            st.write(
+                f"- 偏强参考阈值："
+                f"{method['breadth_positive_threshold_pct']:.0f}%"
+            )
+            st.write(
+                f"- 偏弱参考阈值："
+                f"{method['breadth_negative_threshold_pct']:.0f}%"
+            )
+            st.write(
+                f"- 广泛偏弱参考阈值："
+                f"{method['breadth_weak_threshold_pct']:.0f}%"
+            )
+
+            st.warning(
+                "这些阈值是项目初始规则，尚未通过历史回测验证，"
+                "不能解释为已验证的市场规律。"
+            )
+
+            st.markdown("**研究限制**")
+
+            for limitation in state_result["limitations"]:
+                st.markdown(f"- {limitation}")
+
+    except (ValueError, KeyError, TypeError) as exc:
+        st.error(
+            "市场状态研判未完成。"
+            f"原因：{exc}"
+        )
+
+
+# ============================================================
+# 可审计的结构化研究报告
+# ============================================================
+
+st.divider()
+st.subheader("结构化研究报告")
+
+st.caption(
+    "本报告整合本次行情快照、数据质量检查、市场广度与规则分类。"
+    "报告组合器本身不调用大模型，也不预测未来涨跌。"
+)
+
+# 仅当前面的数据质量、市场广度和状态分类均成功时生成报告。
+report_inputs_ready = (
+    stock_result is not None
+    and index_result is not None
+    and quality_error is None
+    and quality_result is not None
+    and quality_result.get("research_ready") is True
+    and breadth_for_state is not None
+    and isinstance(state_result, dict)
+)
+
+if not report_inputs_ready:
+    st.info(
+        "当前无法生成正式结构化报告。"
+        "请先确认股票快照、指数快照、数据质量门槛、"
+        "市场广度计算和市场状态研判均成功。"
+    )
+else:
+    try:
+        research_report = build_research_report(
+            stock_result=stock_result,
+            index_result=index_result,
+            quality_result=quality_result,
+            breadth=breadth_for_state,
+            state_result=state_result,
+        )
+
+        st.markdown("#### 1. 本次研究概览")
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "规则分类",
+            research_report["market_state"]["label"],
+        )
+        col2.metric(
+            "质量检查通过项",
+            (
+                f"{research_report['evidence_quality']['passed_check_count']} / "
+                f"{research_report['evidence_quality']['total_check_count']}"
+            ),
+        )
+        col3.metric(
+            "历史回测验证",
+            (
+                "已验证"
+                if research_report["evidence_quality"]["historically_validated"]
+                else "尚未验证"
+            ),
+        )
+
+        st.markdown("#### 2. 可核查事实")
+
+        for item in research_report["facts"]:
+            st.markdown(f"- {item['claim']}")
+            st.caption(
+                f"证据类型：{item['evidence_type']}｜来源：{item['source']}"
+            )
+
+        st.markdown("#### 3. 规则解释")
+
+        for item in research_report["interpretations"]:
+            st.write(item["claim"])
+
+            if item["basis"]:
+                st.caption("依据")
+                for evidence in item["basis"]:
+                    st.markdown(f"- {evidence}")
+
+        st.markdown("#### 4. 尚未验证的假设与问题")
+
+        for item in research_report["hypotheses"]:
+            st.markdown(f"- **{item['claim']}**")
+            st.caption(f"原因：{item['reason']}")
+
+        st.markdown("#### 5. 证据质量与时间信息")
+
+        evidence_quality = research_report["evidence_quality"]
+        evidence_time = research_report["evidence_time"]
+
+        st.write(
+            {
+                "股票接口时间（UTC）": evidence_time["stock_api_time_utc"],
+                "指数接口时间（UTC）": evidence_time["index_api_time_utc"],
+                "两个接口时间戳完全相同": evidence_time["timestamps_match"],
+                "基础质量门槛": evidence_quality["basic_quality_gate"],
+                "分页时间跨度（秒）": evidence_quality[
+                    "page_timestamp_spread_seconds"
+                ],
+                "股票与指数接口时间差（秒）": evidence_quality[
+                    "stock_index_api_gap_seconds"
+                ],
+                "交易时段已验证": evidence_quality[
+                    "market_session_verified"
+                ],
+                "独立数据源已交叉验证": evidence_quality[
+                    "independent_source_verified"
+                ],
+            }
+        )
+
+        if evidence_quality["warnings"]:
+            st.markdown("**数据质量警告**")
+            for warning in evidence_quality["warnings"]:
+                st.warning(warning)
+
+        st.markdown("#### 6. 证据充分度说明")
+
+        confidence_basis = research_report["confidence_basis"]
+
+        st.write(confidence_basis["label"])
+        st.write(confidence_basis["interpretation"])
+
+        for reason in confidence_basis["reasons"]:
+            st.markdown(f"- {reason}")
+
+        st.markdown("#### 7. 状态重新评估条件")
+
+        for condition in research_report["market_state"]["switch_conditions"]:
+            st.markdown(f"- {condition}")
+
+        with st.expander("查看完整报告数据（JSON）"):
+            st.json(research_report)
+
+        st.caption(research_report["disclaimer"])
+
+
+        # ============================================================
+        # DeepSeek AI 解读：只解释结构化报告，不修改规则分类
+        # ============================================================
+
+        st.divider()
+        st.markdown("#### 8. DeepSeek AI 解读")
+
+        st.caption(
+            "AI 仅依据本次结构化研究报告进行解释，"
+            "不重新判断市场状态，不预测未来涨跌，也不提供交易建议。"
+        )
+
+        # 用关键报告内容生成缓存标识，避免重复请求，
+        # 同时避免把旧行情的解读误用于新报告。
+        llm_input = {
+            "market_state": research_report["market_state"],
+            "facts": research_report["facts"],
+            "interpretations": research_report["interpretations"],
+            "hypotheses": research_report["hypotheses"],
+            "evidence_time": research_report["evidence_time"],
+            "evidence_quality": research_report["evidence_quality"],
+        }
+
+        llm_cache_key = hashlib.sha256(
+            json.dumps(
+                llm_input,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        cache_key_name = "deepseek_report_cache_key"
+        cache_result_name = "deepseek_report_result"
+
+        if st.button(
+            "生成 / 更新 AI 解读",
+            key="generate_deepseek_interpretation",
+        ):
+            # 新报告对应新缓存；不沿用旧报告的解读。
+            st.session_state.pop(cache_result_name, None)
+            st.session_state.pop(cache_key_name, None)
+
+            try:
+                with st.spinner("DeepSeek 正在分析结构化研究报告……"):
+                    llm_result = generate_llm_interpretation(
+                        research_report
+                    )
+
+                st.session_state[cache_result_name] = llm_result
+                st.session_state[cache_key_name] = llm_cache_key
+
+            except LLMAnalysisError as exc:
+                st.error(f"AI 解读生成失败：{exc}")
+
+        # 只有缓存与当前报告匹配时才显示结果。
+        if (
+            st.session_state.get(cache_key_name) == llm_cache_key
+            and st.session_state.get(cache_result_name)
+        ):
+            llm_result = st.session_state[cache_result_name]
+
+            st.caption(
+                f"模型：{llm_result.get('model', '未知')} "
+                f"| 生成时间："
+                f"{format_unix_seconds(llm_result.get('generated_at'))}"
+            )
+
+            st.markdown(llm_result["content"])
+
+
+    except (ValueError, KeyError, TypeError) as exc:
+        st.error(
+            "结构化研究报告生成失败，未展示正式报告。"
+            f"原因：{exc}"
+        )
+
+
+
+
 
 # ============================================================
 # 方法、限制与免责声明
@@ -553,17 +929,16 @@ st.markdown(
 
     - 检查股票实际记录数与接口报告总数是否相符。
     - 检查证券代码重复、涨跌幅缺失和无效数值。
-    - 检查各页返回的时间戳是否一致。
-    - 比较股票与指数接口的时间戳差异。
-    - 未通过必要的数据质量检查时，不展示正式市场广度结论。
+    - 检查分页时间戳和股票、指数接口时间差。
+    - 未通过必要的数据质量检查时，不展示正式市场广度统计或状态结论。
 
     **研究限制**
 
     - API 数据就绪时间不一定等于交易所交易时间。
     - 分页时间戳一致不能单独证明分页属于同一个原子快照。
+    - 市场广度按有效记录数量统计，不代表市值加权表现。
+    - 市场状态分类依赖透明但尚未经过历史回测验证的规则。
     - 当前版本不推断未来价格，不生成买卖信号，不提供仓位建议。
-    - 市场广度描述的是已获取数据中的上涨、下跌和平盘分布；
-      不能单独代表市场风险或未来收益。
     """
 )
 

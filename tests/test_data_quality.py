@@ -117,6 +117,95 @@ class TestSnapshotQuality(unittest.TestCase):
             result["metrics"]["stock_index_api_gap_seconds"], 15.0
         )
 
+    def test_nan_and_infinity_change_values_block_readiness(self):
+        for invalid_value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(invalid_value=invalid_value):
+                stock = make_stock_result()
+                stock["items"][0]["price_change_ratio_pct"] = invalid_value
+
+                result = assess_snapshot_quality(stock)
+
+                self.assertFalse(result["research_ready"])
+                self.assertFalse(result["checks"]["change_values_valid"])
+                self.assertEqual(result["metrics"]["invalid_change_count"], 1)
+
+    def test_empty_security_code_blocks_readiness(self):
+        stock = make_stock_result()
+        stock["items"][0]["thscode"] = "   "
+
+        result = assess_snapshot_quality(stock)
+
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["security_codes_valid"])
+
+    def test_non_dict_record_blocks_readiness(self):
+        stock = make_stock_result()
+        stock["items"][0] = None
+
+        result = assess_snapshot_quality(stock)
+
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["security_codes_valid"])
+        self.assertFalse(result["checks"]["change_values_valid"])
+
+    def test_missing_ratio_over_threshold_blocks_readiness(self):
+        stock = make_stock_result()
+        stock["items"][0]["price_change_ratio_pct"] = None
+
+        result = assess_snapshot_quality(
+            stock,
+            max_missing_ratio_pct=1.0,
+        )
+
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["missing_ratio_within_threshold"])
+        self.assertAlmostEqual(result["metrics"]["missing_ratio_pct"], 2.0)
+
+    def test_stock_index_gap_over_threshold_blocks_readiness(self):
+        stock = make_stock_result()
+        index = {"api_timestamp_ms": 70001}
+
+        result = assess_snapshot_quality(
+            stock,
+            index_result=index,
+            max_api_gap_seconds=60.0,
+        )
+
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["api_gap_within_threshold"])
+        self.assertAlmostEqual(
+            result["metrics"]["stock_index_api_gap_seconds"],
+            60.001,
+        )
+
+    def test_stock_index_gap_exactly_at_threshold_passes(self):
+        stock = make_stock_result()
+        index = {"api_timestamp_ms": 70000}
+
+        result = assess_snapshot_quality(
+            stock,
+            index_result=index,
+            max_api_gap_seconds=60.0,
+        )
+
+        self.assertTrue(result["checks"]["api_gap_within_threshold"])
+        self.assertEqual(
+            result["metrics"]["stock_index_api_gap_seconds"],
+            60.0,
+        )
+
+    def test_empty_stock_list_blocks_readiness(self):
+        stock = make_stock_result()
+        stock["items"] = []
+        stock["api_reported_total"] = 0
+
+        result = assess_snapshot_quality(stock)
+
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["missing_ratio_within_threshold"])
+        self.assertIsNone(result["metrics"]["missing_ratio_pct"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

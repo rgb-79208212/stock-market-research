@@ -250,17 +250,51 @@ if stock_result is not None:
             "记录数量检查未通过：实际记录数与接口报告总数不一致。"
         )
 
-    if timestamps_consistent:
-        st.success(
-            "分页时间戳检查通过：各页返回了相同的非空时间戳。"
+    valid_timestamps = []
+
+    for timestamp in page_timestamps:
+        try:
+            value = float(timestamp)
+            if pd.notna(value):
+                valid_timestamps.append(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+
+    if (
+            page_timestamps
+            and len(valid_timestamps) == len(page_timestamps)
+    ):
+        earliest_timestamp = min(valid_timestamps)
+        latest_timestamp = max(valid_timestamps)
+        timestamp_spread_seconds = (
+                                           latest_timestamp - earliest_timestamp
+                                   ) / 1000
+
+        if timestamps_consistent:
+            st.success("分页时间戳检查通过：所有页面的时间戳相同。")
+            st.caption(
+                "注意：时间戳相同不能单独证明所有分页来自同一个原子快照。"
+            )
+        else:
+            st.warning(
+                "分页时间戳存在差异。"
+                "接口文档未保证各页时间戳必须相同，"
+                "因此不能仅凭该差异断定数据无效；"
+                "同时也不能据此确认所有分页属于同一行情时点。"
+            )
+
+        st.metric(
+            "分页时间戳跨度",
+            f"{timestamp_spread_seconds:.1f} 秒",
         )
         st.caption(
-            "注意：时间戳一致不等于已经证明所有分页来自同一个原子快照。"
+            f"最早：{format_api_time(earliest_timestamp)}；"
+            f"最晚：{format_api_time(latest_timestamp)}"
         )
     else:
         st.warning(
-            "分页时间戳不一致或存在缺失。"
-            "本次不生成正式市场广度结论。"
+            "部分分页时间戳缺失或无效，无法确认全部分页的时间范围。"
+            "请谨慎解读市场广度结果。"
         )
 
     st.caption(
@@ -339,19 +373,23 @@ if stock_result is not None:
         == stock_result["api_reported_total"]
     )
 
-    if not timestamps_consistent:
-        st.warning(
-            "当前股票分页时间戳检查未通过。"
-            "为避免把不同时间的数据拼成一个市场截面，"
-            "本页面不展示正式市场广度统计。"
-        )
-
-    elif not count_matches:
+    if not count_matches:
         st.error(
             "股票记录数量检查未通过，不能计算正式市场广度。"
         )
-
     else:
+        if not timestamps_consistent:
+            st.warning(
+                "注意：分页时间戳存在差异。以下市场广度是对本次"
+                "已获取股票记录的描述性统计，不代表所有记录"
+                "已被证明来自同一个行情时点。"
+            )
+        else:
+            st.info(
+                "分页时间戳一致，但这不能单独证明所有记录来自"
+                "同一个原子行情快照。"
+            )
+
         try:
             breadth = calculate_market_breadth(stock_result["items"])
 
@@ -413,8 +451,8 @@ if stock_result is not None:
             )
 
             st.info(
-                "以上是基于接口返回记录的描述性统计，"
-                "不代表未来走势，也不构成买卖或仓位建议。"
+                "以上为本次获取数据的描述性统计，不代表未来走势，"
+                "也不构成买卖或仓位建议。"
             )
 
         except (ValueError, KeyError, TypeError) as exc:
@@ -422,7 +460,6 @@ if stock_result is not None:
                 "市场广度计算未完成。"
                 f"原因：{exc}"
             )
-
 
 # ============================================================
 # 方法、限制与免责声明

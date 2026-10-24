@@ -39,7 +39,6 @@
 
 - [Fuyao API 快速入门](https://fuyao.aicubes.cn/docs/quickstart/)
 - [A 股指数 API 文档](https://fuyao.aicubes.cn/docs/api-reference/a-share-index/)
-- [A 股价格接口说明](https://github.com/HiThink-Tech/Financial-API/blob/main/skills/hithink-finance/references/api/endpoints-prices.md)
 
 实际可访问的数据、字段、权限和调用限制取决于上游 API 服务。API 请求成功不等于数据一定完整、及时或适用于所有分析。
 

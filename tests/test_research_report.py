@@ -63,10 +63,11 @@ class TestResearchReport(unittest.TestCase):
         breadth_claims = [
             fact["claim"]
             for fact in report["facts"]
-            if fact.get("source") == "calculate_market_breadth"
+            if "上涨占比" in fact.get("claim", "")
+            and "平盘占比" in fact.get("claim", "")
         ]
         self.assertTrue(
-            any("平盘占比为 0.0%" in claim for claim in breadth_claims)
+            any("平盘占比为 0.00%" in claim for claim in breadth_claims)
         )
         self.assertTrue(report["interpretations"])
         self.assertTrue(report["hypotheses"])

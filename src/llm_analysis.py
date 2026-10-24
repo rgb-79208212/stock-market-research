@@ -62,6 +62,7 @@ SYSTEM_PROMPT = """
 - 即使正式研究适用性未确认，只要基础数据允许，也应尽可能完成有价值的描述性分析，不要因此整篇报告只剩免责声明。
 - 规则引擎给出的市场状态只是当前规则下的分类。必须结合实际指标解释该分类，不能将其包装成经过历史验证的预测模型。
 - 不提供买卖建议、仓位建议或未经证实的未来走势判断。
+- 当输入报告的研究适用性未确认时，你的输出属于暂定、非正式解读，不得表述为已确认的当前市场状态。
 
 不要输出投资建议。
 """.strip()
@@ -107,9 +108,17 @@ def generate_llm_interpretation(
         load_dotenv(override=False)
 
     api_key = _read_config("DEEPSEEK_API_KEY")
-    model = _read_config("DEEPSEEK_MODEL", "deepseek-chat")
+    model = _read_config("DEEPSEEK_MODEL")          # 去掉默认值
     base_url = _read_config("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
+    if not api_key:
+        raise LLMAnalysisError(
+            "缺少 DEEPSEEK_API_KEY 配置，请在环境变量或 Secrets 中设置。"
+        )
+    if not model:
+        raise LLMAnalysisError(
+            "缺少 DEEPSEEK_MODEL 配置，请在环境变量或 Secrets 中设置。"
+        )
     if not api_key:
         raise LLMAnalysisError(
             "未配置 DEEPSEEK_API_KEY，请检查项目根目录下的 .env 文件。"

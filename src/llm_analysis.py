@@ -73,6 +73,16 @@ def generate_llm_interpretation(
             "研究报告未明确通过基础数据质量门禁，已停止调用模型。"
         )
 
+    evidence_quality = research_report.get("evidence_quality")
+
+    if (
+        not isinstance(evidence_quality, dict)
+        or evidence_quality.get("market_freshness_verified") is not True
+    ):
+        raise LLMAnalysisError(
+            "行情新鲜度未明确通过，已停止调用模型。"
+        )
+
     if load_env_file:
         load_dotenv(override=False)
 

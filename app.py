@@ -696,6 +696,16 @@ if stock_result is not None:
 # 市场状态研判
 # ============================================================
 state_result = None
+
+freshness_gate_passed = (
+    isinstance(freshness_result, dict)
+    and freshness_result.get("verified") is True
+    and isinstance(freshness_result.get("stock"), dict)
+    and freshness_result["stock"].get("verified") is True
+    and isinstance(freshness_result.get("index"), dict)
+    and freshness_result["index"].get("verified") is True
+)
+
 st.divider()
 st.subheader("市场状态研判")
 
@@ -714,6 +724,12 @@ elif not quality_result["research_ready"]:
     st.error(
         "数据质量门槛未通过，暂不生成市场状态结论。"
         "请先查看统一数据质量评估中的未通过项目。"
+    )
+
+elif not freshness_gate_passed:
+    st.error(
+        "行情新鲜度检查未通过，暂不生成当前市场状态分类。"
+        "请检查股票和指数快照的时间戳及新鲜度。"
     )
 
 elif index_result is None:
@@ -902,6 +918,7 @@ report_inputs_ready = (
     and quality_result.get("research_ready") is True
     and breadth_for_state is not None
     and isinstance(state_result, dict)
+    and freshness_gate_passed
 )
 
 if not report_inputs_ready:

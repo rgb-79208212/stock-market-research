@@ -4,25 +4,29 @@
 
 **Project:** A-Share Market State Research
 
-**Purpose:** Build a Streamlit prototype that retrieves A-share market data, summarizes major index performance, and evaluates market breadth subject to explicit data-quality checks.
+**Purpose:** Build a Streamlit prototype that retrieves A-share market data, summarizes major index performance, evaluates market breadth subject to explicit data-quality checks, and presents a transparent descriptive market-state classification.
 
-**Development approach:** AI-assisted development with local execution, inspection, testing, and iterative debugging.
+**Development approach:** AI-assisted development combined with local code inspection, automated tests, API diagnostics, and iterative debugging.
+
+**Research boundary:** The application is a descriptive research prototype. Its output is not a price forecast, investment recommendation, position-sizing instruction, or trading signal.
 
 ## 2. How AI Was Used
 
-AI assistance was used to support the following development activities:
+AI assistance was used to support:
 
 - Structuring the application and organizing Python modules.
 - Drafting and refining API request and response handling.
 - Implementing descriptive market-breadth calculations.
 - Adding input validation, missing-value handling, duplicate checks, and timestamp consistency checks.
-- Drafting unit tests and assisting with debugging.
+- Designing automated tests and assisting with debugging.
 - Improving the Streamlit interface and project documentation.
-- Preparing local execution and future deployment instructions.
+- Reviewing research-quality gates, freshness checks, and applicability limitations.
 
-AI-generated suggestions were not treated as proof of correctness. Code was executed locally, and results were checked against test output and actual API responses.
+AI-generated suggestions were not treated as proof of correctness. The developer ran code locally, inspected actual API responses, reviewed implementation details, and used automated test results to identify issues.
 
-## 3. Data Source and Handling
+AI-generated market interpretation is conditional on the supplied research report and its evidence. A successful model response does not independently verify the correctness, completeness, freshness, or predictive value of the underlying data.
+
+## 3. Data Sources and Handling
 
 The application uses the Fuyao Financial API.
 
@@ -30,89 +34,128 @@ Documentation consulted:
 
 - https://fuyao.aicubes.cn/docs/quickstart/
 - https://fuyao.aicubes.cn/docs/api-reference/a-share-index/
+- https://fuyao.aicubes.cn/docs/api-reference/prices/
 - https://github.com/HiThink-Tech/Financial-API/blob/main/skills/hithink-finance/references/api/endpoints-prices.md
 
-The application requests major index snapshots and paginated A-share stock snapshots.
+The application requests paginated A-share stock snapshots and major index snapshots. Historical-data diagnostic scripts also query daily history for selected stocks.
 
-The stock response is checked for issues including:
+Checks implemented in the tracked application code include:
 
 - Missing or invalid stock codes.
 - Duplicate stock codes.
 - Differences between reported and received record counts.
 - Missing or invalid percentage-change values.
-- Inconsistent page timestamps.
+- Invalid or inconsistent stock snapshot page timestamps.
+- Stock/index timestamp gaps and snapshot freshness.
+- Required research-quality gates before producing dependent conclusions.
 
-API credentials are supplied through an environment variable locally and are intended to be configured through deployment secrets in a hosted environment.
+The stock snapshot timestamp is treated as a data-provider timestamp, not proof that all securities share one last-trade time or that all pages form an atomic snapshot.
 
-## 4. Validation Performed
+API credentials are loaded through environment configuration and must not be committed to source code, documentation, tests, or repository history.
 
-### Local code checks
+## 4. Automated Tests
 
-The following commands were executed successfully during local development:
+### Latest confirmed full test run
+
+Command:
 
 ```powershell
-python -m py_compile .\app.py
-python -m py_compile .\src\market_data.py
-python -m unittest discover -s tests -v
+python -m pytest -q
 ```
 
-The latest recorded unit-test run completed with **23 tests passing**.
+Observed result:
 
-The tests cover time-gap handling, market-breadth calculations, market-data validation, and index-data quality checks.
+```text
+101 passed, 21 subtests passed in 2.02s
+```
 
-### Live API smoke test
+This result confirms that the automated tests passed in that local run. It does not prove correctness under every API response, market condition, operating environment, or deployment configuration.
 
-A real API request successfully retrieved:
+Previously recorded test counts in this document or other project documentation should not be treated as current when they differ from the result above.
 
-- 5,578 stock records.
-- 5,570 records with valid percentage-change values.
-- 8 records with missing percentage-change values.
-- Three major index records.
+### Test areas
 
-These figures describe one observed API response and are not guaranteed to remain the same.
+The existing test suite covers relevant areas of market-data handling, market breadth, market-state rules, data-quality gates, timestamp freshness, applicability checks, research-report construction, and AI interpretation validation.
 
-## 5. Important Finding: Pagination Timestamp Inconsistency
+Tests help establish expected behavior for covered cases. They do not substitute for official trading-calendar verification, complete historical market data, or an independently designed backtest.
 
-The observed stock snapshot contained different timestamps across pages. The index response timestamp also differed from the stock response timestamp by approximately three seconds in the recorded run.
+## 5. Live API and Historical-Data Diagnostics
 
-These differences do not, by themselves, prove that the underlying prices are inconsistent. However, the available evidence does not establish that all pages represent one atomic market snapshot.
+The repository contains local diagnostic scripts for:
 
-The application therefore does not present a formal market-breadth conclusion when the page timestamps fail its consistency check.
+- Stock and index snapshot requests.
+- Historical daily data for a selected stock.
+- Historical daily data for a small cross-section of eight stocks.
+- Historical query ranges and segmented-query comparisons.
+- API pagination and timestamp behavior.
 
-This is an intentional limitation designed to avoid overstating the reliability of a derived statistic.
+These scripts are diagnostic utilities, not a production historical data pipeline. Their output depends on the query interval, API permissions, upstream availability, and the time the scripts are run.
 
-Potential follow-up work includes investigating whether the provider supports a more suitable consistent snapshot endpoint, documenting the provider's timestamp semantics more precisely, and testing behavior across trading and non-trading sessions.
+An earlier validation record reported one stock snapshot containing 5,578 records, including 5,570 records with valid percentage-change values and 8 records with missing percentage-change values. The date of that observation was not recorded in this document. These figures are historical observations only and must not be presented as current market counts.
 
-The timestamp check should not be removed merely to make the interface display a breadth result.
+The recorded snapshot investigation also found differing timestamps across stock pages and a small time gap between stock and index snapshots. Those observations motivated stricter timestamp consistency checks. A timestamp mismatch does not by itself prove that prices are wrong, but it means the available evidence does not establish that the combined data is one atomic snapshot.
 
-## 6. Limitations of Validation
+Historical daily data for eight selected stocks, even when available for approximately one year, cannot establish full-market breadth or validate the market-state thresholds. No formal historical validation is claimed in this record.
 
-The checks performed so far do not establish that:
+## 6. Market-State Rules and Validation Limits
 
-- All API data corresponds to the current trading session.
-- All endpoints share an atomic snapshot.
-- The application has been validated across all market conditions.
-- The descriptive statistics have predictive power.
-- The hosted deployment works correctly in every environment.
+The current rule-based market-state classification combines:
 
-A successful API response is not sufficient evidence that the returned data is current or suitable for every analytical conclusion.
+- The percentage of stocks with positive percentage changes.
+- The percentage of stocks with negative percentage changes.
+- The directions of three major indices.
+- Explicit thresholds defined in `src/market_state.py`.
 
-## 7. Security and Reproducibility
+The thresholds are transparent implementation choices for the first prototype. The method metadata explicitly records:
 
-- API credentials should be supplied through environment variables or the hosting platform's secrets mechanism.
-- Credentials must not be committed to source code or public documentation.
+```python
+"historically_validated": False
+```
+
+No predictive performance claim is made.
+
+A formal historical validation would require, at minimum:
+
+1. A clearly defined historical sample period and reproducible source data.
+2. Adequate market-wide observations for each evaluation date.
+3. Explicit handling of missing records, trading calendars, timestamp consistency, and universe changes.
+4. A documented rule implementation and evaluation procedure.
+5. Results that can be reproduced from the documented inputs and method.
+
+Until that work is completed, historical daily data diagnostics must not be described as a successful backtest.
+
+## 7. Data Quality, Freshness, and Applicability
+
+The application applies explicit quality gates before generating dependent research conclusions. A missing, invalid, stale, or inconsistent snapshot should not silently be treated as valid.
+
+Freshness checks compare reported timestamps against a reference time. This is not equivalent to verifying an official exchange trading session.
+
+The current session assessment identifies weekends and regular intraday time windows. The project has not established full official trading-calendar verification for holidays, special closures, or exceptional sessions. Calendar verification must remain unconfirmed until backed by a reliable calendar source.
+
+A timestamp gap between endpoints, or a page-timestamp inconsistency, should be reported as a limitation rather than silently ignored.
+
+## 8. Security and Reproducibility
+
+- API credentials should be supplied through environment variables, a local environment file excluded from Git, or the hosting platform's secrets mechanism.
+- Credentials must not be committed to source code, tests, public documentation, or generated reports.
 - Local virtual environments, caches, and generated data are excluded through `.gitignore`.
-- Before publication, inspect both the current files and Git history for accidentally committed credentials.
-- Re-run the unit tests after material changes.
+- Ignoring a file in the current working tree does not prove that it was never committed in Git history.
+- Before publication, inspect tracked files, staged changes, and commit history for accidentally committed credentials.
+- Re-run the full test suite after material code changes.
+- Record the actual command and output for any new live API or historical validation.
 
-## 8. AI-Assisted Development Disclosure
+## 9. AI-Assisted Development Disclosure
 
-AI tools were used to assist with implementation, debugging, testing design, and documentation. The developer ran the application and validation commands locally and used observed outputs to identify limitations.
+AI tools assisted with implementation, debugging, test design, code review, and documentation. The developer executed local tests and diagnostic commands and used the observed results to refine the implementation.
 
-This record describes the development and validation evidence available at the time of writing. It should be updated when additional tests, provider investigations, or deployment checks are completed.
+AI-generated interpretations remain subject to the quality, freshness, completeness, and applicability of their input data. Model-generated prose is not an independent data source or proof of a research conclusion.
 
-## 9. Publication Status
+This record describes the validation evidence currently documented in the repository. It should be updated when new tests, historical validation, security audits, or deployment checks are completed.
 
-At the time this record was prepared, a successful public GitHub publication and hosted Streamlit deployment had not yet been verified.
+## 10. Publication and Deployment Status
 
-The project should only be described as publicly deployed after the repository and hosted application have been confirmed to work.
+Local automated tests have passed as recorded above.
+
+A passing local test suite does not prove that the latest local commits have been pushed to the public repository or that a hosted Streamlit application is available and functioning.
+
+Public repository synchronization, credential-history review, and hosted deployment must be independently verified before the project is described as publicly deployed.

@@ -5,6 +5,17 @@ from src.llm_analysis import (
     generate_llm_interpretation,
 )
 
+def _fresh_report(**overrides):
+    """构造通过基础质量门禁和行情新鲜度门禁的测试报告。"""
+    report = {
+        "research_ready": True,
+        "facts": [],
+        "evidence_quality": {
+            "market_freshness_verified": True,
+        },
+    }
+    report.update(overrides)
+    return report
 
 def test_rejects_non_dict_report():
     with pytest.raises(LLMAnalysisError, match="格式错误"):
@@ -57,6 +68,29 @@ def test_rejects_non_boolean_quality_gate(monkeypatch, value):
             load_env_file=False,
         )
 
+def test_rejects_report_without_verified_freshness(monkeypatch):
+    import src.llm_analysis as llm
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
+
+    def unexpected_client_call(**kwargs):
+        raise AssertionError("行情新鲜度未通过时不应初始化模型客户端")
+
+    monkeypatch.setattr(llm, "OpenAI", unexpected_client_call)
+
+    with pytest.raises(LLMAnalysisError, match="新鲜度"):
+        generate_llm_interpretation(
+            {
+                "research_ready": True,
+                "facts": [],
+                "evidence_quality": {
+                    "market_freshness_verified": False,
+                },
+            },
+            load_env_file=False,
+        )
+
 
 def test_requires_api_key(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -64,7 +98,7 @@ def test_requires_api_key(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="DEEPSEEK_API_KEY"):
         generate_llm_interpretation(
-            {"research_ready": True, "facts": []},
+            _fresh_report(),
             load_env_file=False,
         )
 
@@ -75,7 +109,7 @@ def test_requires_model_name(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="DEEPSEEK_MODEL"):
         generate_llm_interpretation(
-            {"research_ready": True, "facts": []},
+            _fresh_report(),
             load_env_file=False,
         )
 
@@ -93,6 +127,7 @@ def test_successful_call_uses_report_and_system_prompt(monkeypatch):
             "market_session_verified": False,
             "independent_source_verified": False,
             "historically_validated": False,
+            "market_freshness_verified": True,
         },
     }
 
@@ -167,7 +202,7 @@ def test_api_failure_is_wrapped_without_exposing_error_details(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="DeepSeek 调用失败") as exc_info:
         llm.generate_llm_interpretation(
-            {"research_ready": True, "facts": []},
+            _fresh_report(),
             load_env_file=False,
         )
 
@@ -218,6 +253,6 @@ def test_rejects_empty_model_response(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="模型返回了空内容"):
         llm.generate_llm_interpretation(
-            {"research_ready": True, "facts": []},
+            _fresh_report(),
             load_env_file=False,
         )

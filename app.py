@@ -799,8 +799,9 @@ with tab_overview:
             for item in research_report["facts"]:
                 st.markdown(f"- {item['claim']}")
                 st.caption(
-                    f"证据类型：{item['evidence_type']}"
-                    f"｜来源：{item['source']}"
+                    f"证据类型：{item['evidence_type']} ｜ "
+                    f"来源：{item['source']} ｜ "
+                    f"时点：{item.get('timestamp', '未提供')}"
                 )
 
             st.markdown("**2. 规则解释**")

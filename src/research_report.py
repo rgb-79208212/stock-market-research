@@ -125,35 +125,74 @@ def build_research_report(
     state_metrics = state_result.get("metrics", {})
     method = state_result.get("method", {})
 
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    # ---- 从参数取值，兼容实际 API 返回与测试 mock ----
+    actual_count = stock_result.get("actual_record_count")
+    if actual_count is None:
+        actual_count = len(stock_result.get("items") or [])
+    actual_count = int(actual_count)
+
+    valid_count = breadth.get("valid_change_count")
+    if valid_count is None:
+        valid_count = 0
+    valid_count = int(valid_count)
+
+    _ts_ms = stock_result.get("api_timestamp_ms")
+    if _ts_ms is None:
+        snapshot_time_cst = "未提供"
+    else:
+        try:
+            snapshot_time_cst = datetime.fromtimestamp(
+                float(_ts_ms) / 1000,
+                tz=timezone.utc,
+            ).astimezone(ZoneInfo("Asia/Shanghai")).strftime(
+                "%Y-%m-%d %H:%M:%S CST"
+            )
+        except (ValueError, TypeError, OverflowError, OSError):
+            snapshot_time_cst = "无效时间戳"
+
     facts = [
         {
-            "claim": (
-                f"股票快照包含 {len(stock_result['items'])} 条记录。"
-            ),
-            "source": stock_result.get("source_api", "股票快照接口"),
+            "claim": f"股票快照包含 {actual_count:,} 条记录。",
             "evidence_type": "api_observation",
+            "source": (
+                "Fuyao A 股快照 API（/a-share/prices/snapshot）· "
+                "字段 api_reported_total · 单位：条"
+            ),
+            "timestamp": snapshot_time_cst,
+        },
+        {
+            "claim": f"市场广度有效样本为 {valid_count:,} 条。",
+            "evidence_type": "calculated_metric",
+            "source": (
+                "Fuyao A 股快照 API · 字段 price_change_ratio_pct（非空且可解析）· "
+                "单位：条 · 口径：涨跌幅缺失或无效不计入"
+            ),
+            "timestamp": snapshot_time_cst,
         },
         {
             "claim": (
-                f"市场广度有效样本为 "
-                f"{metrics.get('valid_change_count')} 条。"
+                f"上涨占比为 {breadth['advance_ratio_pct']:.2f}%，"
+                f"下跌占比为 {breadth['decline_ratio_pct']:.2f}%，"
+                f"平盘占比为 {breadth['unchanged_ratio_pct']:.2f}%。"
             ),
-            "source": "calculate_market_breadth",
             "evidence_type": "calculated_metric",
-        },
-        {
-            "claim": (
-                f"上涨占比为 {metrics.get('advance_ratio_pct')}%，"
-                f"下跌占比为 {metrics.get('decline_ratio_pct')}%，"
-                f"平盘占比为 {metrics.get('unchanged_ratio_pct')}%。"
+            "source": (
+                "Fuyao A 股快照 API · 字段 price_change_ratio_pct · "
+                f"单位：百分数 · 分母：{valid_count:,} 条有效涨跌幅"
             ),
-            "source": "calculate_market_breadth",
-            "evidence_type": "calculated_metric",
+            "timestamp": snapshot_time_cst,
         },
         {
             "claim": f"规则分类结果为：{state_result['state']}。",
-            "source": "assess_market_state",
             "evidence_type": "rule_output",
+            "source": (
+                "项目规则引擎 v1（src/market_state.py）· "
+                "阈值：强 70% / 弱 30% · 历史回测：未验证"
+            ),
+            "timestamp": snapshot_time_cst,
         },
     ]
 

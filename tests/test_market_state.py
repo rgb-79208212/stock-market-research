@@ -165,6 +165,31 @@ class TestAssessMarketState(unittest.TestCase):
                     result["state_switch_conditions"][0],
                 )
 
+    def test_rejects_inconsistent_breadth_ratios(self):
+        breadth = {
+            "advance_ratio_pct": 80.0,
+            "decline_ratio_pct": 50.0,
+            "unchanged_ratio_pct": 0.0,
+            "valid_change_count": 5000,
+        }
+
+        with self.assertRaises(ValueError):
+            assess_market_state(breadth, make_indices([0.5, 0.2, 0.1]))
+
+    def test_rejects_breadth_ratios_not_summing_to_100(self):
+        breadth = {
+            "advance_ratio_pct": 60.0,
+            "decline_ratio_pct": 30.0,
+            "unchanged_ratio_pct": 5.0,
+            "valid_change_count": 5000,
+        }
+
+        with self.assertRaises(ValueError):
+            assess_market_state(breadth, make_indices([0.5, 0.2, 0.1]))
+
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

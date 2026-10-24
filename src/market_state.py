@@ -73,6 +73,22 @@ def assess_market_state(
     if not 0 <= advance_ratio <= 100 or not 0 <= decline_ratio <= 100:
         raise ValueError("上涨占比和下跌占比必须在 0% 至 100% 之间。")
 
+    # 两个比例来自同一组有效样本时，其合计不能超过 100%。
+    # 允许两位小数分别四舍五入带来的微小误差。
+    if advance_ratio + decline_ratio > 100.02:
+        raise ValueError("上涨占比和下跌占比之和超过合理范围。")
+
+    unchanged_value = breadth.get("unchanged_ratio_pct")
+    if unchanged_value is not None:
+        unchanged_ratio = _finite_number(unchanged_value)
+
+        if not 0 <= unchanged_ratio <= 100:
+            raise ValueError("平盘占比必须在 0% 至 100% 之间。")
+
+        if abs(
+                advance_ratio + decline_ratio + unchanged_ratio - 100
+        ) > 0.03:
+            raise ValueError("上涨、下跌和平盘占比之和不等于 100%。")
     index_by_code: dict[str, dict[str, Any]] = {}
 
     for item in index_items:

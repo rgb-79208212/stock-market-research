@@ -1,4 +1,3 @@
-
 # Python
 __pycache__/
 *.py[cod]
@@ -11,6 +10,9 @@ env/
 
 # IDE
 .idea/
+.vscode/
+*.iml
+*.swp
 
 # Secrets and local environment
 .env
@@ -20,7 +22,18 @@ env/
 
 # Local data and generated outputs
 data/
+output/
 *.log
+*.bak
+*.tmp
+*.csv
+*.xlsx
+*.parquet
+
+# Temporary text files (根目录临时笔记，按需增删)
+/apptemp.txt
+/temp*.txt
+/*_temp.txt
 
 # Test and coverage cache
 .pytest_cache/

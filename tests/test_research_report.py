@@ -301,6 +301,24 @@ class TestResearchReport(unittest.TestCase):
             )
         )
 
+    def test_confidence_reason_matches_page_timestamp_consistency(self):
+        consistent_inputs = list(self.make_inputs())
+        consistent_inputs[2]["basic_quality_passed"] = True
+        consistent_inputs[2]["checks"]["page_timestamps_consistent"] = True
+
+        inconsistent_inputs = list(self.make_inputs())
+        inconsistent_inputs[2]["basic_quality_passed"] = True
+        inconsistent_inputs[2]["checks"]["page_timestamps_consistent"] = False
+
+        consistent_report = build_research_report(*consistent_inputs)
+        inconsistent_report = build_research_report(*inconsistent_inputs)
+
+        consistent_reason = consistent_report["confidence_basis"]["reasons"][0]
+        inconsistent_reason = inconsistent_report["confidence_basis"]["reasons"][0]
+
+        self.assertNotEqual(consistent_reason, inconsistent_reason)
+        self.assertIn("通过", consistent_reason)
+        self.assertIn("未通过", inconsistent_reason)
 
 
 

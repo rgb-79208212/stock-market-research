@@ -330,8 +330,21 @@ def build_research_report(
         "numeric_probability": None,
         "reasons": [
             (
-                "基础质量门槛已通过，但仍需关注逐项质量警告；"
-                "分页时间戳一致性未通过，无法确认所有分页来自同一行情时点。"
+                (
+                    "基础质量门槛已通过；分页时间戳一致性检查通过，"
+                    "但这不证明所有分页来自同一真实行情生成时点。"
+                )
+                if evidence_quality["basic_quality_gate"] == "passed"
+                   and evidence_quality["page_timestamps_consistent"] is True
+                else (
+                    "基础质量门槛已通过；分页时间戳一致性检查未通过，"
+                    "需关注分页数据的时点差异。"
+                )
+                if evidence_quality["basic_quality_gate"] == "passed"
+                   and evidence_quality["page_timestamps_consistent"] is False
+                else (
+                    "基础质量门槛已通过；分页时间戳一致性结果缺失或无法判断。"
+                )
                 if evidence_quality["basic_quality_gate"] == "passed"
                 else "基础质量门槛未通过；本报告仅用于受限的快照描述。"
             ),

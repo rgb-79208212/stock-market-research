@@ -150,6 +150,7 @@ def assess_snapshot_quality(
         "security_codes_valid": security_codes_valid,
         "no_duplicate_codes": no_duplicate_codes,
         "page_timestamps_valid": page_timestamps_valid,
+        "page_timestamps_consistent": timestamps_consistent,
         "page_timestamp_spread_within_threshold": spread_within_threshold,
         "change_values_valid": invalid_change_count == 0,
         "missing_ratio_within_threshold": missing_ratio_within_threshold,

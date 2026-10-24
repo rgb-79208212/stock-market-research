@@ -250,7 +250,7 @@ def build_research_report(
         "api_gap_within_threshold": checks.get(
             "api_gap_within_threshold"
         ),
-        "page_timestamps_consistent": quality_metrics.get(
+        "page_timestamps_consistent": checks.get(
             "page_timestamps_consistent"
         ),
         "page_timestamp_spread_seconds": quality_metrics.get(

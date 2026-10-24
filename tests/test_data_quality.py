@@ -60,14 +60,17 @@ class TestSnapshotQuality(unittest.TestCase):
         self.assertFalse(result["research_ready"])
         self.assertFalse(result["checks"]["no_duplicate_codes"])
 
-    def test_timestamp_difference_warns_but_does_not_alone_block(self):
+    def test_timestamp_difference_blocks_readiness(self):
         stock = make_stock_result()
         stock["page_timestamps"] = [10000, 12000]
 
         result = assess_snapshot_quality(stock)
 
-        self.assertTrue(result["research_ready"])
-        self.assertFalse(result["metrics"]["page_timestamps_consistent"])
+        self.assertFalse(result["research_ready"])
+        self.assertFalse(result["checks"]["page_timestamps_consistent"])
+        self.assertTrue(
+            result["checks"]["page_timestamp_spread_within_threshold"]
+        )
         self.assertEqual(
             result["metrics"]["page_timestamp_spread_seconds"], 2.0
         )
@@ -81,6 +84,7 @@ class TestSnapshotQuality(unittest.TestCase):
 
         self.assertFalse(result["research_ready"])
         self.assertFalse(result["checks"]["page_timestamps_valid"])
+        self.assertFalse(result["checks"]["page_timestamps_consistent"])
 
     def test_market_session_is_never_assumed_verified(self):
         result = assess_snapshot_quality(make_stock_result())

@@ -230,8 +230,8 @@ def fetch_stock_snapshot():
     # 才将这项检查标记为通过。
     page_timestamps_consistent = (
         bool(page_timestamps)
-        and all(timestamp is not None for timestamp in page_timestamps)
-        and len(set(page_timestamps)) == 1
+        and len(valid_api_timestamps) == len(page_timestamps)
+        and len({entry[0] for entry in valid_api_timestamps}) == 1
     )
 
     # 使用所有分页中最大的有效时间戳。

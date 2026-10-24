@@ -558,6 +558,7 @@ if stock_result is not None:
             "security_codes_valid": "证券代码有效",
             "no_duplicate_codes": "证券代码无重复",
             "page_timestamps_valid": "分页时间戳完整有效",
+            "page_timestamps_consistent": "分页时间戳一致",
             "page_timestamp_spread_within_threshold": "分页时间戳跨度在阈值内",
             "change_values_valid": "非空涨跌幅数值有效",
             "missing_ratio_within_threshold": "涨跌幅缺失比例在阈值内",

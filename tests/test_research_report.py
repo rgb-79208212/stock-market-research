@@ -22,6 +22,7 @@ class TestResearchReport(unittest.TestCase):
             "checks": {
                 "record_count_matches": True,
                 "page_timestamps_valid": True,
+                "page_timestamps_consistent": True,
                 "page_timestamp_spread_within_threshold": True,
                 "api_timestamps_comparable": True,
                 "api_gap_within_threshold": True,
@@ -87,6 +88,17 @@ class TestResearchReport(unittest.TestCase):
         self.assertTrue(evidence_quality["page_timestamps_consistent"])
         self.assertFalse(evidence_quality["market_session_verified"])
         self.assertFalse(evidence_quality["independent_source_verified"])
+
+    def test_report_uses_consistency_gate_not_metric(self):
+        inputs = list(self.make_inputs())
+        inputs[2]["checks"]["page_timestamps_consistent"] = False
+        inputs[2]["metrics"]["page_timestamps_consistent"] = True
+
+        report = build_research_report(*inputs)
+
+        self.assertFalse(
+            report["evidence_quality"]["page_timestamps_consistent"]
+        )
 
     def test_quality_failure_blocks_report(self):
         inputs = list(self.make_inputs())

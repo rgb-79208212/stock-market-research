@@ -5,6 +5,24 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from dotenv import load_dotenv
+
+load_dotenv(override=False)   # 模块加载时即读取 .env；云端无 .env 时静默跳过
+
+def _read_config(name: str, default: str = "") -> str:
+    """优先 st.secrets（云端），回退 os.environ（本地 .env）。"""
+    try:
+        import streamlit as st
+        try:
+            value = st.secrets[name]
+            if value:
+                return str(value).strip()
+        except (KeyError, FileNotFoundError):
+            pass
+    except Exception:
+        pass
+
+    return (os.getenv(name, default) or "").strip()
 
 SYSTEM_PROMPT = """
 
@@ -88,11 +106,9 @@ def generate_llm_interpretation(
     if load_env_file:
         load_dotenv(override=False)
 
-    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
-    model = os.getenv("DEEPSEEK_MODEL", "").strip()
-    base_url = os.getenv(
-        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
-    ).strip()
+    api_key = _read_config("DEEPSEEK_API_KEY")
+    model = _read_config("DEEPSEEK_MODEL", "deepseek-chat")
+    base_url = _read_config("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
     if not api_key:
         raise LLMAnalysisError(

@@ -1,5 +1,11 @@
 # A 股市场状态研究｜A-Share Market State Research
 
+> **在线体验**：https://stock-market-research-ygbtfnt7pgmndj6e9eoz7k.streamlit.app
+>
+> **源代码**：https://github.com/rgb-79208212/stock-market-research
+>
+> **测试说明**：[docs/TESTING.md](docs/TESTING.md)　|　**AI 使用记录**：[docs/AI_USAGE_AND_VALIDATION.md](docs/AI_USAGE_AND_VALIDATION.md)
+
 一个基于 Python、Streamlit 和金融行情 API 的 A 股市场状态研究原型。项目通过主要指数行情、股票涨跌分布、数据质量检查和透明的规则分类，帮助用户理解特定数据时点的市场表现。
 
 本项目关注**市场描述、数据可信度与研究过程的可追溯性**，不提供价格预测、个股推荐、仓位建议或交易信号。
@@ -68,11 +74,13 @@ python -m pip install -r requirements.txt
 
 ### 配置 API Key
 
-在当前 PowerShell 会话中设置环境变量：
+本地开发使用项目根的 `.env` 文件（已在 `.gitignore` 中排除），格式参照 `.env.example`：
 
-```powershell
-$env:HITHINK_FINANCE_API_KEY = Read-Host "请输入 Fuyao API Key"
-```
+```dotenv
+HITHINK_FINANCE_API_KEY=你的扶摇key
+DEEPSEEK_API_KEY=你的deepseek key
+DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 请在提示中输入自己的 API Key。不要将密钥写入源代码、README、测试文件或 Git 仓库。
 
@@ -160,7 +168,7 @@ AI 使用记录、测试覆盖范围、已知问题和发布状态详见：
 - API 时间戳不能单独证明当前交易时段或所有行情的同步性。
 - 当前市场状态阈值尚未经过正式历史回测验证。
 - 抽样股票历史日线不能替代全市场历史快照。
-- 尚需根据实际发布情况验证托管部署、在线访问、部署密钥和运行日志。
+- 托管部署已在 Streamlit Community Cloud 完成，在线访问、Secrets 与运行日志已手动验证。
 - 风格轮动、行业表现、估值、流动性、情绪和事件证据仍需进一步完善；不能将尚未实现的功能描述为已完成。
 - 公开发布前仍需审计 Git 跟踪文件和提交历史，确认没有意外提交的密钥或其他敏感信息。
 

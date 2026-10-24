@@ -24,6 +24,30 @@ AI assistance was used to support:
 
 AI-generated suggestions were not treated as proof of correctness. The developer ran code locally, inspected actual API responses, reviewed implementation details, and used automated test results to identify issues.
 
+### Concrete corrections made to AI-generated output
+
+The following are representative examples where AI-suggested implementations were inspected, tested, and corrected before merging:
+
+1. **Secret resolution on Streamlit Cloud.**
+   AI-drafted code read API keys only via `os.getenv(...)`. Streamlit Community Cloud exposes Secrets through `st.secrets`, not through process environment variables, so the AI interpretation button would fail in production while passing locally.
+   *Correction*: introduced `_read_config(name, default)` in `src/llm_analysis.py` that prefers `st.secrets`, falls back to `os.environ`, and calls `load_dotenv(override=False)` at module import so both local `.env` and hosted Secrets resolve through one code path.
+
+2. **Title obscured by the fixed header.**
+   AI-generated CSS set `.block-container { padding-top: 1rem; }`, which placed the page title underneath Streamlit's fixed `stHeader` bar. The page looked broken on first load.
+   *Correction*: made `header[data-testid="stHeader"]` transparent and raised `.block-container` top padding to `3.5rem`; the header menu stays clickable while the title is fully visible.
+
+3. **Overly broad `.gitignore` rule.**
+   A suggested rule `*.txt` would have silently excluded `requirements.txt`, breaking hosted builds.
+   *Correction*: replaced with targeted patterns (`/apptemp.txt`, `/*_temp.txt`) plus export-data patterns (`*.csv`, `*.xlsx`, `*.parquet`), and re-verified with `git status --ignored` that `.env`, `.venv/`, `__pycache__/`, and `data/` are ignored while required files remain tracked.
+
+4. **Conflating "quality passed" with "market is live".**
+   An early UI draft displayed a single "data OK" banner once checks passed, which implied the snapshot was a real-time trading observation. Quality checks do not establish trading-session validity.
+   *Correction*: split the state into four independent badges (data quality / freshness / trading session / snapshot time) and gated downstream conclusions on each separately, so a passing quality check no longer implies a confirmed live session.
+
+5. **Silent stale-data reuse.**
+   An early prototype reused previously fetched snapshot results when a new request failed, which could present outdated data as current.
+   *Correction*: on every fetch the app now clears `market_result` / `index_result` / error keys from `st.session_state` before requesting, and refuses to generate formal breadth or state conclusions when freshness or quality gates fail.
+
 AI-generated market interpretation is conditional on the supplied research report and its evidence. A successful model response does not independently verify the correctness, completeness, freshness, or predictive value of the underlying data.
 
 ## 3. Data Sources and Handling
@@ -152,13 +176,20 @@ AI-generated interpretations remain subject to the quality, freshness, completen
 
 This record describes the validation evidence currently documented in the repository. It should be updated when new tests, historical validation, security audits, or deployment checks are completed.
 
+The concrete corrections listed in §2 are the primary evidence that AI output was reviewed rather than accepted verbatim.
+
 ## 10. Publication and Deployment Status
 
-Local automated tests have passed as recorded above.
+- **Public repository**: `https://github.com/rgb-79208212/stock-market-research` (`main` branch synchronized).
+- **Hosted application**: `https://stock-market-research-ygbtfnt7pgmndj6e9eoz7k.streamlit.app`
+- **Hosting platform**: Streamlit Community Cloud, Python 3.12.
+- **Secrets configured on the hosting platform**: `HITHINK_FINANCE_API_KEY`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL` (values are not recorded in this document).
+- **Credential handling**: API keys were rotated after an accidental local exposure during development. Only the rotated keys are configured locally and on the hosting platform. No credentials are tracked in Git.
+- **Automated test status**: `101 passed, 21 subtests passed` — see `docs/TESTING.md` §2 for the latest confirmed run.
+- **Post-deployment manual checks**: snapshot retrieval, diagnostics tabs, and AI interpretation generation are verified against the hosted URL.
 
-A passing local test suite does not prove that the latest local commits have been pushed to the public repository or that a hosted Streamlit application is available and functioning.
+The hosted deployment reflects the current `main` branch. Any later commit triggers an automatic redeploy; the manual checklist in `docs/TESTING.md` §5 should be repeated after material changes.
 
-Public repository synchronization, credential-history review, and hosted deployment must be independently verified before the project is described as publicly deployed.
 
 ## Additional Historical Data Validation (2026-10-24)
 

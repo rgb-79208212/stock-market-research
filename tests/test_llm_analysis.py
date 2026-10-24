@@ -5,17 +5,20 @@ from src.llm_analysis import (
     generate_llm_interpretation,
 )
 
+
 def _fresh_report(**overrides):
     """构造通过基础质量门禁和行情新鲜度门禁的测试报告。"""
     report = {
         "research_ready": True,
         "facts": [],
         "evidence_quality": {
+            "basic_quality_gate": "passed",
             "market_freshness_verified": True,
         },
     }
     report.update(overrides)
     return report
+
 
 def test_rejects_non_dict_report():
     with pytest.raises(LLMAnalysisError, match="格式错误"):
@@ -85,6 +88,7 @@ def test_rejects_report_without_verified_freshness(monkeypatch):
                 "research_ready": True,
                 "facts": [],
                 "evidence_quality": {
+                    "basic_quality_gate": "passed",
                     "market_freshness_verified": False,
                 },
             },
@@ -123,7 +127,12 @@ def test_successful_call_uses_report_and_system_prompt(monkeypatch):
     report = {
         "research_ready": True,
         "facts": ["上涨占比为 55%"],
+        "status": "时段适用性未确认",
+        "current_snapshot_applicability_confirmed": False,
+        "reasons": ["官方交易日历尚未验证"],
+        "limitations": ["仅允许进行受限的快照描述"],
         "evidence_quality": {
+            "basic_quality_gate": "passed",
             "market_session_verified": False,
             "independent_source_verified": False,
             "historically_validated": False,
@@ -179,6 +188,13 @@ def test_successful_call_uses_report_and_system_prompt(monkeypatch):
 
     assert captured["stream"] is False
     assert captured["temperature"] == 0.2
+
+    assert "暂定、非正式解读" in llm.SYSTEM_PROMPT
+    assert "不得表述为已确认的当前市场状态" in llm.SYSTEM_PROMPT
+    assert (
+            json.dumps(report, ensure_ascii=False)
+            in messages[1]["content"]
+    )
 
 
 def test_api_failure_is_wrapped_without_exposing_error_details(monkeypatch):

@@ -143,7 +143,7 @@ python -m pytest -q
 最近一次已确认的完整测试结果：
 
 ```text
-101 passed, 21 subtests passed in 2.02s
+完整测试结果以本地最近一次 python -m pytest -q 的实际输出为准。
 ```
 
 这表示该次本地自动化测试全部通过，不代表所有实时 API 状态、市场环境、部署环境或历史行情都已经验证。

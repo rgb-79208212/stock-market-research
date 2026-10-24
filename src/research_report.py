@@ -54,8 +54,20 @@ def build_research_report(
     ):
         raise ValueError("freshness_result 必须是字典或 None")
 
-    if quality_result.get("research_ready") is not True:
-        raise ValueError("数据质量门槛未通过，不能生成正式研究报告。")
+    # 允许合格的描述性快照生成结构化报告。
+    # 这不代表正式研究准入已经通过。
+    descriptive_ready = (
+            quality_result.get("descriptive_statistics_ready") is True
+            or (
+                    "descriptive_statistics_ready" not in quality_result
+                    and quality_result.get("research_ready") is True
+            )
+    )
+
+    if not descriptive_ready:
+        raise ValueError(
+            "描述性统计门槛未通过，不能生成结构化快照报告。"
+        )
 
     if not isinstance(stock_result.get("items"), list):
         raise ValueError("股票快照缺少有效记录列表。")
@@ -233,9 +245,12 @@ def build_research_report(
             is True
         )
 
-
     evidence_quality = {
-        "basic_quality_gate": "passed",
+        "basic_quality_gate": (
+            "passed"
+            if quality_result.get("basic_quality_passed") is True
+            else "failed"
+        ),
         "passed_check_count": passed_checks,
         "total_check_count": total_checks,
         "page_timestamps_valid": checks.get(
@@ -310,16 +325,29 @@ def build_research_report(
         ],
     )
 
-
     confidence_basis = {
         "label": "规则分类的证据充分度：初步",
         "numeric_probability": None,
         "reasons": [
-            "基础数据质量门槛已通过。",
+            (
+                "基础质量门槛已通过，但仍需关注逐项质量警告；"
+                "分页时间戳一致性未通过，无法确认所有分页来自同一行情时点。"
+                if evidence_quality["basic_quality_gate"] == "passed"
+                else "基础质量门槛未通过；本报告仅用于受限的快照描述。"
+            ),
             "状态分类有明确、可检查的规则依据。",
             "当前阈值尚未经过历史回测验证。",
-            "基础时段判断不等于官方交易日历验证；"
-            "行情新鲜度和独立数据源也尚未验证。",
+            (
+                "基础时段判断不等于官方交易日历验证。"
+                if evidence_quality["market_calendar_verified"] is not True
+                else "官方交易日历验证已通过。"
+            ),
+            (
+                "股票和指数时间戳年龄检查已通过，但这不证明行情源真实实时。"
+                if evidence_quality["market_freshness_verified"] is True
+                else "股票和指数时间戳年龄检查未通过或无法完成。"
+            ),
+            "独立数据源交叉验证尚未完成。",
             "现有指标不足以证明状态持续性或未来方向。",
         ],
         "interpretation": (
@@ -328,9 +356,32 @@ def build_research_report(
         ),
     }
 
+    # 新版质量结果中，正式研究还要求全部基础质量检查通过。
+    # 仅为兼容旧版测试数据，才回退使用旧 research_ready 字段。
+    basic_quality_passed = quality_result.get(
+        "basic_quality_passed"
+    )
+
+    if (
+            basic_quality_passed is None
+            and "descriptive_statistics_ready" not in quality_result
+    ):
+        # 仅兼容旧版数据结构。
+        basic_quality_passed = (
+                quality_result.get("research_ready") is True
+        )
+
+    formal_research_ready = (
+            basic_quality_passed is True
+            and research_applicability.get(
+        "current_snapshot_applicability_confirmed"
+    ) is True
+    )
+
+
     return {
         "report_version": "1.0",
-        "research_ready": quality_result["research_ready"],
+        "research_ready": formal_research_ready,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "evidence_time": {
             "stock_api_time_utc": stock_time,

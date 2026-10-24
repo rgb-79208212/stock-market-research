@@ -45,10 +45,8 @@ INDEX_NAMES = {
     "000300.SH": "沪深300",
 }
 
-st.title("A股市场状态研究")
-st.caption(
-    "AI 驱动的市场状态研究原型｜描述性分析，不构成投资建议"
-)
+st.title("A股市场研究")
+st.caption("基于行情数据、市场广度与主要指数表现的分析，仅供研究参考，不构成投资建议。")
 
 
 # ============================================================
@@ -351,6 +349,10 @@ else:
         "综合新鲜度检查："
         + ("通过" if freshness_result["verified"] else "未通过")
     )
+    with st.expander("查看新鲜度检查详情"):
+        st.write("股票快照检查：", freshness_result["stock"])
+        st.write("指数快照检查：", freshness_result["index"])
+        st.write("综合检查：", freshness_result["verified"])
 
 
 if stock_result is None and index_result is None:
@@ -546,11 +548,20 @@ if stock_result is not None:
     elif quality_result is not None:
         if quality_result["research_ready"]:
             st.success(
-                "基础数据质量门槛通过：可以展示本次快照的描述性统计。"
+                "全部数据质量检查通过。"
+                "在其他适用性条件满足时，可以进行正式规则研判。"
+            )
+        elif quality_result["descriptive_statistics_ready"]:
+            st.warning(
+                "基础描述性统计门槛通过，但正式研究准入条件尚未全部满足。"
+                "可以展示本次快照的描述性统计和暂定规则分类；"
+                "结构化报告与 AI 解读仍须满足各自的质量和新鲜度门槛。"
+                "分页时间戳存在差异，尚不能确认所有分页来自同一行情时点。"
             )
         else:
             st.error(
-                "基础数据质量门槛未通过：暂不展示正式市场统计和状态结论。"
+                "基础描述性统计门槛未通过，不能展示市场广度。"
+                "请查看下方检查结果和警告。"
             )
 
         check_labels = {
@@ -604,6 +615,15 @@ if stock_result is not None:
 # 市场广度
 # ============================================================
 
+freshness_gate_passed = (
+    isinstance(freshness_result, dict)
+    and freshness_result.get("verified") is True
+    and isinstance(freshness_result.get("stock"), dict)
+    and freshness_result["stock"].get("verified") is True
+    and isinstance(freshness_result.get("index"), dict)
+    and freshness_result["index"].get("verified") is True
+)
+
 breadth_for_state = None
 
 if stock_result is not None:
@@ -611,28 +631,54 @@ if stock_result is not None:
     st.subheader("市场广度")
 
     if quality_error or quality_result is None:
-        st.error("数据质量评估不可用，不能展示正式市场广度统计。")
-
-    elif not quality_result["research_ready"]:
         st.error(
-            "统一数据质量门槛未通过，暂不展示正式市场广度统计。"
-            "请先查看上方检查结果和警告。"
+            "数据质量评估不可用，不能展示市场广度统计。"
+        )
+
+    elif not quality_result.get(
+        "descriptive_statistics_ready", False
+    ):
+        st.error(
+            "基础描述性统计门槛未通过，暂不展示市场广度。"
+            "请先查看上方数据质量检查结果。"
         )
 
     else:
-        if not stock_result["page_timestamps_consistent"]:
+        # 正式研究门槛未通过时，仍可展示合格的描述性统计，
+        # 但不允许将该统计传给正式市场状态分类。
+        if not quality_result["research_ready"]:
             st.warning(
-                "分页时间戳存在差异，但跨度处于项目设定阈值内。"
-                "以下统计只描述本次已获取记录，不证明所有记录来自同一行情时点。"
+                "正式研究准入条件尚未全部满足。"
+                "以下市场广度仅用于描述本次已获取的快照；"
+                "规则分类、结构化报告和 AI 解读如可生成，"
+                "均属于暂定、受限结果，不代表正式研究结论。"
+            )
+
+        if not stock_result.get("page_timestamps_consistent", False):
+            st.warning(
+                "分页时间戳存在差异。"
+                "即使时间跨度处于设定阈值内，也不能确认所有分页"
+                "来自同一个行情时点；以下统计仅描述已获取记录。"
             )
         else:
             st.info(
-                "分页时间戳一致，但这不能单独证明所有记录来自同一个原子快照。"
+                "分页时间戳一致，但这不能单独证明所有记录"
+                "来自同一个原子快照。"
             )
 
         try:
-            breadth = calculate_market_breadth(stock_result["items"])
-            breadth_for_state = breadth
+            breadth = calculate_market_breadth(
+                stock_result["items"]
+            )
+
+            # 只有全部正式数据质量检查通过，市场广度才可以
+            # 进入后续正式市场状态分类。
+            if (
+                    quality_result.get("basic_quality_passed") is True
+                    and freshness_gate_passed
+                    and index_result is not None
+            ):
+                breadth_for_state = breadth
 
             st.caption(
                 "计算口径：上涨为涨跌幅大于 0；下跌为小于 0；"
@@ -641,9 +687,18 @@ if stock_result is not None:
 
             metric1, metric2, metric3 = st.columns(3)
 
-            metric1.metric("上涨标的", f"{breadth['advancers']:,}")
-            metric2.metric("下跌标的", f"{breadth['decliners']:,}")
-            metric3.metric("平盘标的", f"{breadth['unchanged']:,}")
+            metric1.metric(
+                "上涨标的",
+                f"{breadth['advancers']:,}",
+            )
+            metric2.metric(
+                "下跌标的",
+                f"{breadth['decliners']:,}",
+            )
+            metric3.metric(
+                "平盘标的",
+                f"{breadth['unchanged']:,}",
+            )
 
             ratio1, ratio2, ratio3, ratio4 = st.columns(4)
 
@@ -697,15 +752,6 @@ if stock_result is not None:
 # ============================================================
 state_result = None
 
-freshness_gate_passed = (
-    isinstance(freshness_result, dict)
-    and freshness_result.get("verified") is True
-    and isinstance(freshness_result.get("stock"), dict)
-    and freshness_result["stock"].get("verified") is True
-    and isinstance(freshness_result.get("index"), dict)
-    and freshness_result["index"].get("verified") is True
-)
-
 st.divider()
 st.subheader("市场状态研判")
 
@@ -720,25 +766,38 @@ if stock_result is None:
 elif quality_error or quality_result is None:
     st.error("数据质量评估不可用，不能生成市场状态结论。")
 
-elif not quality_result["research_ready"]:
+elif not quality_result.get("descriptive_statistics_ready", False):
     st.error(
-        "数据质量门槛未通过，暂不生成市场状态结论。"
+        "基础数据质量门槛未通过，暂不生成市场状态分类。"
         "请先查看统一数据质量评估中的未通过项目。"
+    )
+
+elif quality_result.get("basic_quality_passed") is not True:
+    st.error(
+        "基础数据质量检查未全部通过，"
+        "暂不生成市场状态分类。"
+        "请查看上方的数据质量检查结果。"
     )
 
 elif not freshness_gate_passed:
     st.error(
-        "行情新鲜度检查未通过，暂不生成当前市场状态分类。"
+        "行情新鲜度检查未通过，暂不生成市场状态分类。"
         "请检查股票和指数快照的时间戳及新鲜度。"
     )
 
 elif index_result is None:
-    st.error("缺少主要指数快照，不能生成完整的市场状态结论。")
+    st.error("缺少主要指数快照，不能生成完整的市场状态分类。")
 
 elif breadth_for_state is None:
-    st.error("市场广度计算不可用，不能生成市场状态结论。")
+    st.error("市场广度计算不可用，不能生成市场状态分类。")
 
 else:
+    if not quality_result.get("research_ready", False):
+        st.warning(
+            "正式研究数据质量门槛未通过。以下仅为暂定的规则分类，"
+            "不属于正式研究结论；结构化研究报告和 AI 解读仍受限。"
+        )
+
     try:
         state_result = assess_market_state(
             breadth_for_state,
@@ -769,7 +828,7 @@ else:
                 applicability = assess_research_applicability(
                     basic_quality_gate=(
                         "passed"
-                        if quality_result.get("research_ready") is True
+                        if quality_result.get("basic_quality_passed") is True
                         else "failed"
                     ),
                     stock_session=assess_market_session(
@@ -915,7 +974,8 @@ report_inputs_ready = (
     and index_result is not None
     and quality_error is None
     and quality_result is not None
-    and quality_result.get("research_ready") is True
+    and quality_result.get("descriptive_statistics_ready") is True
+    and quality_result.get("basic_quality_passed") is True
     and breadth_for_state is not None
     and isinstance(state_result, dict)
     and freshness_gate_passed
@@ -1111,9 +1171,6 @@ else:
         for condition in research_report["market_state"]["switch_conditions"]:
             st.markdown(f"- {condition}")
 
-        with st.expander("查看完整报告数据（JSON）"):
-            st.json(research_report)
-
         st.caption(research_report["disclaimer"])
 
 
@@ -1128,6 +1185,28 @@ else:
             "AI 仅依据本次结构化研究报告进行解释，"
             "不重新判断市场状态，不预测未来涨跌，也不提供交易建议。"
         )
+
+        applicability_for_llm = research_report.get(
+            "research_applicability",
+            {},
+        )
+
+        if (
+            isinstance(applicability_for_llm, dict)
+            and applicability_for_llm.get(
+                "current_snapshot_applicability_confirmed"
+            ) is True
+        ):
+            st.info(
+                "当前快照研究适用性已确认。"
+                "这不代表规则经过历史回测，也不代表未来市场走势已得到验证。"
+            )
+        else:
+            st.warning(
+                "暂定、非正式 AI 解读：当前快照研究适用性未确认。"
+                "AI 只能解释本次快照的规则分类和已有证据，"
+                "不得将其表述为已确认的当前市场状态。"
+            )
 
         # 用关键报告内容生成缓存标识，避免重复请求，
         # 同时避免把旧行情的解读误用于新报告。

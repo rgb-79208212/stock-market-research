@@ -30,3 +30,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local research scripts, backups and audit outputs
+/local_research/

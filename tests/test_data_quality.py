@@ -33,7 +33,9 @@ class TestSnapshotQuality(unittest.TestCase):
     def test_valid_snapshot_passes_basic_quality_gate(self):
         result = assess_snapshot_quality(make_stock_result())
 
-        self.assertTrue(result["research_ready"])
+        self.assertTrue(result["basic_quality_passed"])
+        self.assertTrue(result["descriptive_statistics_ready"])
+        self.assertFalse(result["research_ready"])
         self.assertTrue(result["checks"]["record_count_matches"])
         self.assertTrue(result["checks"]["no_duplicate_codes"])
         self.assertEqual(result["metrics"]["valid_change_count"], 99)
@@ -209,6 +211,40 @@ class TestSnapshotQuality(unittest.TestCase):
         self.assertFalse(result["checks"]["missing_ratio_within_threshold"])
         self.assertIsNone(result["metrics"]["missing_ratio_pct"])
 
+def test_small_page_timestamp_difference_allows_descriptive_statistics():
+    stock_result = {
+        "items": [
+            {
+                "thscode": "000001.SZ",
+                "price_change_ratio_pct": 1.2,
+            },
+            {
+                "thscode": "000002.SZ",
+                "price_change_ratio_pct": -0.5,
+            },
+        ],
+        "api_reported_total": 2,
+        "page_timestamps": [10000, 12000],
+        "api_timestamp_ms": 12000,
+    }
+
+    index_result = {
+        "items": [],
+        "api_timestamp_ms": 12000,
+    }
+
+    result = assess_snapshot_quality(
+        stock_result,
+        index_result=index_result,
+        max_page_timestamp_spread_seconds=60.0,
+        max_api_gap_seconds=60.0,
+    )
+
+    assert result["descriptive_statistics_ready"] is True
+    assert result["research_ready"] is False
+    assert result["checks"]["page_timestamps_consistent"] is False
+    assert result["checks"]["page_timestamp_spread_within_threshold"] is True
+    assert result["basic_quality_passed"] is True
 
 
 if __name__ == "__main__":

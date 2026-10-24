@@ -21,6 +21,42 @@ def test_rejects_report_blocked_by_quality_gate(monkeypatch):
             load_env_file=False,
         )
 
+def test_rejects_report_without_quality_gate(monkeypatch):
+    import src.llm_analysis as llm
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
+
+    def unexpected_client_call(**kwargs):
+        raise AssertionError("质量门禁失败时不应初始化模型客户端")
+
+    monkeypatch.setattr(llm, "OpenAI", unexpected_client_call)
+
+    with pytest.raises(LLMAnalysisError, match="质量门禁"):
+        generate_llm_interpretation(
+            {"facts": []},
+            load_env_file=False,
+        )
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, None])
+def test_rejects_non_boolean_quality_gate(monkeypatch, value):
+    import src.llm_analysis as llm
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "test-model")
+
+    def unexpected_client_call(**kwargs):
+        raise AssertionError("质量门禁失败时不应初始化模型客户端")
+
+    monkeypatch.setattr(llm, "OpenAI", unexpected_client_call)
+
+    with pytest.raises(LLMAnalysisError, match="质量门禁"):
+        generate_llm_interpretation(
+            {"research_ready": value, "facts": []},
+            load_env_file=False,
+        )
+
 
 def test_requires_api_key(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -28,7 +64,7 @@ def test_requires_api_key(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="DEEPSEEK_API_KEY"):
         generate_llm_interpretation(
-            {"facts": []},
+            {"research_ready": True, "facts": []},
             load_env_file=False,
         )
 
@@ -39,7 +75,7 @@ def test_requires_model_name(monkeypatch):
 
     with pytest.raises(LLMAnalysisError, match="DEEPSEEK_MODEL"):
         generate_llm_interpretation(
-            {"facts": []},
+            {"research_ready": True, "facts": []},
             load_env_file=False,
         )
 

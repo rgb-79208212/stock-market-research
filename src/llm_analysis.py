@@ -68,8 +68,10 @@ def generate_llm_interpretation(
     if not isinstance(research_report, dict):
         raise LLMAnalysisError("研究报告格式错误：预期为字典。")
 
-    if research_report.get("research_ready") is False:
-        raise LLMAnalysisError("研究报告未通过质量门禁，已停止调用模型。")
+    if research_report.get("research_ready") is not True:
+        raise LLMAnalysisError(
+            "研究报告未明确通过基础数据质量门禁，已停止调用模型。"
+        )
 
     if load_env_file:
         load_dotenv(override=False)

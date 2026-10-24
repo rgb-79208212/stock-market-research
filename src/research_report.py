@@ -258,6 +258,7 @@ def build_research_report(
 
     return {
         "report_version": "1.0",
+        "research_ready": quality_result["research_ready"],
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "evidence_time": {
             "stock_api_time_utc": stock_time,

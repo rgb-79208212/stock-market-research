@@ -28,7 +28,7 @@ python -m pytest tests/test_market_state.py -v
 ## 2. 最近一次完整测试结果
 
 ```text
-101 passed, 21 subtests passed in 2.02s
+105 passed, 21 subtests passed in 1.93s
 ```
 
 执行环境：本地 Windows + Python 3.12 + `.venv`。

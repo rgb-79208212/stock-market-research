@@ -90,7 +90,7 @@ python -m pytest -q
 Observed result:
 
 ```text
-101 passed, 21 subtests passed in 2.02s
+105 passed, 21 subtests passed in 1.93s
 ```
 
 This result confirms that the automated tests passed in that local run. It does not prove correctness under every API response, market condition, operating environment, or deployment configuration.

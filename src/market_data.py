@@ -102,6 +102,7 @@ def fetch_stock_snapshot():
     duplicate_codes = set()
     total_reported = None
     api_timestamp_ms = None
+    valid_api_timestamps = []
 
     # 必须在分页循环之前初始化，只初始化一次。
     page_timestamps = []
@@ -130,8 +131,20 @@ def fetch_stock_snapshot():
             timestamp = data.get("timestamp")
             page_timestamps.append(timestamp)
 
-            if timestamp is not None:
-                api_timestamp_ms = timestamp
+            # 仅收集有效的毫秒时间戳。
+            # 保留原始值供后续返回，使用数值形式比较大小。
+            if timestamp is not None and not isinstance(timestamp, bool):
+                try:
+                    timestamp_numeric = float(timestamp)
+                except (TypeError, ValueError, OverflowError):
+                    timestamp_numeric = None
+
+                if (
+                    timestamp_numeric is not None
+                    and math.isfinite(timestamp_numeric)
+                    and timestamp_numeric > 0
+                ):
+                    valid_api_timestamps.append((timestamp_numeric, timestamp))
 
             if not items:
                 break
@@ -220,6 +233,14 @@ def fetch_stock_snapshot():
         and all(timestamp is not None for timestamp in page_timestamps)
         and len(set(page_timestamps)) == 1
     )
+
+    # 使用所有分页中最大的有效时间戳。
+    # 如果没有任何有效时间戳，则保留 None。
+    if valid_api_timestamps:
+        api_timestamp_ms = max(
+            valid_api_timestamps,
+            key=lambda entry: entry[0],
+        )[1]
 
     return {
         "items": all_items,

@@ -12,6 +12,104 @@ from src.market_data import (
 
 class TestMarketData(unittest.TestCase):
 
+    def _stock_page(self, timestamp, codes, total):
+        return {
+            "timestamp": timestamp,
+            "total": total,
+            "item": [
+                {
+                    "thscode": code,
+                    "price_change_ratio_pct": 1.0,
+                }
+                for code in codes
+            ],
+        }
+
+    @patch("src.market_data.time.sleep")
+    @patch("src.market_data._request_json")
+    @patch("src.market_data._create_session")
+    def test_stock_snapshot_uses_latest_valid_page_timestamp(
+        self, mock_create_session, mock_request_json, mock_sleep
+    ):
+        """多页时间戳乱序时，应选择最大有效时间戳。"""
+        mock_create_session.return_value.close.return_value = None
+        mock_request_json.side_effect = [
+            self._stock_page(
+                2000,
+                ["000001.SZ", "000002.SZ"],
+                3,
+            ),
+            self._stock_page(
+                1000,
+                ["000003.SZ"],
+                3,
+            ),
+        ]
+
+        with patch("src.market_data.PAGE_SIZE", 2):
+            result = fetch_stock_snapshot()
+
+        self.assertEqual(result["api_timestamp_ms"], 2000)
+        self.assertEqual(result["page_timestamps"], [2000, 1000])
+        self.assertFalse(result["page_timestamps_consistent"])
+
+    @patch("src.market_data.time.sleep")
+    @patch("src.market_data._request_json")
+    @patch("src.market_data._create_session")
+    def test_stock_snapshot_keeps_valid_timestamp_when_last_page_missing(
+        self, mock_create_session, mock_request_json, mock_sleep
+    ):
+        """最后一页缺少时间戳时，不应覆盖之前的有效时间戳。"""
+        mock_create_session.return_value.close.return_value = None
+        mock_request_json.side_effect = [
+            self._stock_page(
+                2000,
+                ["000001.SZ", "000002.SZ"],
+                3,
+            ),
+            self._stock_page(
+                None,
+                ["000003.SZ"],
+                3,
+            ),
+        ]
+
+        with patch("src.market_data.PAGE_SIZE", 2):
+            result = fetch_stock_snapshot()
+
+        self.assertEqual(result["api_timestamp_ms"], 2000)
+        self.assertEqual(result["page_timestamps"], [2000, None])
+        self.assertFalse(result["page_timestamps_consistent"])
+
+    @patch("src.market_data.time.sleep")
+    @patch("src.market_data._request_json")
+    @patch("src.market_data._create_session")
+    def test_stock_snapshot_returns_none_when_all_timestamps_invalid(
+        self, mock_create_session, mock_request_json, mock_sleep
+    ):
+        """所有分页时间戳均无效时，不应生成有效时间戳。"""
+        mock_create_session.return_value.close.return_value = None
+        mock_request_json.side_effect = [
+            self._stock_page(
+                None,
+                ["000001.SZ", "000002.SZ"],
+                3,
+            ),
+            self._stock_page(
+                float("nan"),
+                ["000003.SZ"],
+                3,
+            ),
+        ]
+
+        with patch("src.market_data.PAGE_SIZE", 2):
+            result = fetch_stock_snapshot()
+
+        self.assertIsNone(result["api_timestamp_ms"])
+        self.assertEqual(len(result["page_timestamps"]), 2)
+
+
+
     @patch("src.market_data._create_session")
     def test_stock_snapshot_rejects_duplicate_codes(self, mock_session):
         """重复证券代码应被拦截。"""

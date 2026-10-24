@@ -19,6 +19,7 @@ from src.market_session import assess_market_session
 from src.research_applicability import (
     assess_research_applicability,
 )
+from src.market_freshness import assess_snapshot_freshness
 
 
 import hashlib
@@ -289,6 +290,67 @@ if stock_result is not None:
         )
     except (ValueError, TypeError, KeyError) as exc:
         quality_error = f"数据质量评估无法完成：{exc}"
+
+# 独立评估股票和指数快照的时间戳新鲜度。
+# 使用同一个参考时刻，确保两份结果可以直接比较。
+freshness_result = None
+freshness_error = None
+
+if stock_result is not None or index_result is not None:
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000
+
+    try:
+        freshness_result = assess_snapshot_freshness(
+            stock_result,
+            index_result,
+            now_ms=now_ms,
+            max_age_seconds=120.0,
+        )
+    except (ValueError, TypeError, KeyError) as exc:
+        freshness_error = f"行情新鲜度评估无法完成：{exc}"
+
+st.divider()
+st.subheader("行情时间戳新鲜度")
+
+st.caption(
+    "本检查以当前 UTC 时间为参照，默认允许时间戳最大滞后 120 秒。"
+    "通过只表示时间戳年龄符合阈值，不证明行情源真实实时，"
+    "也不代表交易日历已经核实。"
+)
+
+if freshness_error:
+    st.warning(freshness_error)
+
+elif freshness_result is None:
+    st.info("尚无可评估的行情快照。")
+
+else:
+    for source_name, result in (
+        ("股票快照", freshness_result["stock"]),
+        ("指数快照", freshness_result["index"]),
+    ):
+        age = result["age_seconds"]
+        age_text = (
+            f"{age:.1f} 秒"
+            if isinstance(age, (int, float)) and not isinstance(age, bool)
+            else "不可计算"
+        )
+
+        if result["verified"] is True:
+            st.success(
+                f"{source_name}：时间戳年龄检查通过，"
+                f"状态={result['status']}，年龄={age_text}"
+            )
+        else:
+            st.warning(
+                f"{source_name}：时间戳年龄检查未通过，"
+                f"状态={result['status']}，年龄={age_text}"
+            )
+
+    st.caption(
+        "综合新鲜度检查："
+        + ("通过" if freshness_result["verified"] else "未通过")
+    )
 
 
 if stock_result is None and index_result is None:
@@ -855,6 +917,7 @@ else:
             quality_result=quality_result,
             breadth=breadth_for_state,
             state_result=state_result,
+            freshness_result=freshness_result,
         )
 
         st.markdown("#### 1. 本次研究概览")

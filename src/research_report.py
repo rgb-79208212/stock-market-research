@@ -35,6 +35,7 @@ def build_research_report(
     quality_result: dict[str, Any],
     breadth: dict[str, Any],
     state_result: dict[str, Any],
+    freshness_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """组合已有分析结果，不请求网络、不调用大模型、不生成交易建议。"""
 
@@ -47,6 +48,11 @@ def build_research_report(
     ):
         if not isinstance(value, dict):
             raise ValueError(f"{name} 必须是字典。")
+
+    if freshness_result is not None and not isinstance(
+        freshness_result, dict
+    ):
+        raise ValueError("freshness_result 必须是字典或 None")
 
     if quality_result.get("research_ready") is not True:
         raise ValueError("数据质量门槛未通过，不能生成正式研究报告。")
@@ -175,6 +181,59 @@ def build_research_report(
     passed_checks = sum(value is True for value in checks.values())
     total_checks = len(checks)
 
+    freshness_warnings = []
+
+    if freshness_result is not None:
+        stock_freshness = freshness_result.get("stock")
+        index_freshness = freshness_result.get("index")
+
+        market_freshness_verified = (
+            freshness_result.get("verified") is True
+            and isinstance(stock_freshness, dict)
+            and stock_freshness.get("verified") is True
+            and isinstance(index_freshness, dict)
+            and index_freshness.get("verified") is True
+        )
+
+        for source_name, source_key in (
+            ("股票快照", "stock"),
+            ("指数快照", "index"),
+        ):
+            source_freshness = freshness_result.get(source_key)
+
+            if (
+                not isinstance(source_freshness, dict)
+                or source_freshness.get("verified") is not True
+            ):
+                if isinstance(source_freshness, dict):
+                    status = source_freshness.get(
+                        "status", "unknown"
+                    )
+                    age = source_freshness.get("age_seconds")
+                else:
+                    status = "missing_freshness_result"
+                    age = None
+
+                age_text = (
+                    f"{age:.1f} 秒"
+                    if isinstance(age, (int, float))
+                    and not isinstance(age, bool)
+                    else "不可计算"
+                )
+
+                freshness_warnings.append(
+                    f"{source_name}时间戳新鲜度检查未通过："
+                    f"状态={status}，年龄={age_text}。"
+                )
+
+    else:
+        # 兼容尚未传入独立新鲜度结果的旧调用。
+        market_freshness_verified = (
+            quality_result.get("market_freshness_verified")
+            is True
+        )
+
+
     evidence_quality = {
         "basic_quality_gate": "passed",
         "passed_check_count": passed_checks,
@@ -205,9 +264,21 @@ def build_research_report(
             "market_session_verified", False
         ),
         "market_calendar_verified": False,
-        "market_freshness_verified": quality_result.get(
-            "market_freshness_verified",
-            False,
+        "market_freshness_verified": market_freshness_verified,
+        "stock_timestamp_freshness": (
+            freshness_result.get("stock")
+            if freshness_result is not None
+            else None
+        ),
+        "index_timestamp_freshness": (
+            freshness_result.get("index")
+            if freshness_result is not None
+            else None
+        ),
+        "freshness_max_age_seconds": (
+            freshness_result.get("max_age_seconds")
+            if freshness_result is not None
+            else None
         ),
         "stock_market_session": stock_session,
         "index_market_session": index_session,
@@ -219,6 +290,7 @@ def build_research_report(
         "warnings": (
             list(quality_result.get("warnings", []))
             + session_warnings
+            + freshness_warnings
         ),
     }
 

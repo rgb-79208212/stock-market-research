@@ -103,6 +103,103 @@ class TestResearchReport(unittest.TestCase):
             build_research_report(*inputs)
 
 
+    def test_freshness_pass_is_recorded_in_report(self):
+        inputs = self.make_inputs()
+        freshness = {
+            "verified": True,
+            "stock": {
+                "verified": True,
+                "status": "within_configured_age",
+                "age_seconds": 10.0,
+            },
+            "index": {
+                "verified": True,
+                "status": "within_configured_age",
+                "age_seconds": 12.0,
+            },
+            "max_age_seconds": 120.0,
+        }
+
+        report = build_research_report(
+            *inputs,
+            freshness_result=freshness,
+        )
+        quality = report["evidence_quality"]
+
+        self.assertTrue(quality["market_freshness_verified"])
+        self.assertEqual(
+            quality["stock_timestamp_freshness"]["age_seconds"],
+            10.0,
+        )
+        self.assertEqual(
+            quality["index_timestamp_freshness"]["age_seconds"],
+            12.0,
+        )
+        self.assertEqual(quality["freshness_max_age_seconds"], 120.0)
+
+    def test_freshness_failure_adds_warning(self):
+        inputs = self.make_inputs()
+        freshness = {
+            "verified": False,
+            "stock": {
+                "verified": True,
+                "status": "within_configured_age",
+                "age_seconds": 10.0,
+            },
+            "index": {
+                "verified": False,
+                "status": "stale_timestamp",
+                "age_seconds": 180.0,
+            },
+            "max_age_seconds": 120.0,
+        }
+
+        report = build_research_report(
+            *inputs,
+            freshness_result=freshness,
+        )
+        quality = report["evidence_quality"]
+
+        self.assertFalse(quality["market_freshness_verified"])
+        self.assertTrue(
+            any(
+                "指数快照" in warning
+                and "stale_timestamp" in warning
+                for warning in quality["warnings"]
+            )
+        )
+
+    def test_missing_freshness_result_keeps_legacy_call(self):
+        inputs = self.make_inputs()
+
+        report = build_research_report(*inputs)
+        quality = report["evidence_quality"]
+
+        self.assertIsNone(quality["stock_timestamp_freshness"])
+        self.assertIsNone(quality["index_timestamp_freshness"])
+        self.assertFalse(quality["market_freshness_verified"])
+
+    def test_freshness_pass_does_not_bypass_quality_gate(self):
+        inputs = list(self.make_inputs())
+        inputs[2]["research_ready"] = False
+
+        freshness = {
+            "verified": True,
+            "stock": {"verified": True, "status": "within_configured_age",
+                      "age_seconds": 1.0},
+            "index": {"verified": True, "status": "within_configured_age",
+                      "age_seconds": 1.0},
+            "max_age_seconds": 120.0,
+        }
+
+        with self.assertRaises(ValueError):
+            build_research_report(
+                *inputs,
+                freshness_result=freshness,
+            )
+
+
+
 
     def test_report_records_market_session_and_calendar_limits(self):
         inputs = self.make_inputs()
@@ -162,7 +259,35 @@ class TestResearchReport(unittest.TestCase):
             any("周末" in warning for warning in quality["warnings"])
         )
 
+    def test_missing_snapshot_freshness_cannot_pass(self):
+        inputs = self.make_inputs()
 
+        freshness = {
+            "verified": True,
+            "stock": {
+                "verified": True,
+                "status": "within_configured_age",
+                "age_seconds": 10.0,
+            },
+            # 故意缺少指数新鲜度结果
+            "max_age_seconds": 120.0,
+        }
+
+        report = build_research_report(
+            *inputs,
+            freshness_result=freshness,
+        )
+
+        quality = report["evidence_quality"]
+
+        self.assertFalse(quality["market_freshness_verified"])
+        self.assertIsNone(quality["index_timestamp_freshness"])
+        self.assertTrue(
+            any(
+                "指数快照" in warning
+                for warning in quality["warnings"]
+            )
+        )
 
 
 

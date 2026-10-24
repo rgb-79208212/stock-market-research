@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from src.market_session import assess_market_session
+from src.research_applicability import (
+    assess_research_applicability,
+)
 
 
 def _timestamp_to_iso(timestamp_ms: Any) -> str | None:
@@ -68,6 +72,35 @@ def build_research_report(
     index_time = _timestamp_to_iso(
         index_result.get("api_timestamp_ms")
     )
+
+    stock_session = assess_market_session(
+        stock_result.get("api_timestamp_ms")
+    )
+    index_session = assess_market_session(
+        index_result.get("api_timestamp_ms")
+    )
+
+
+    session_warnings = []
+
+    for source_name, session in (
+            ("股票接口", stock_session),
+            ("指数接口", index_session),
+    ):
+        if session["status"] == "无法判断":
+            session_warnings.append(
+                f"{source_name}缺少有效时间戳，无法判断基础交易时段。"
+            )
+        elif session["within_regular_session"] is False:
+            session_warnings.append(
+                f"{source_name}时间对应“{session['status']}”；"
+                "不能仅凭接口成功认定为交易时段实时行情。"
+            )
+        else:
+            session_warnings.append(
+                f"{source_name}时间落在常规连续交易时段范围内，"
+                "但官方交易日历和行情新鲜度尚未验证。"
+            )
 
     metrics = breadth
     quality_metrics = quality_result.get("metrics", {})
@@ -167,16 +200,44 @@ def build_research_report(
         "stock_index_api_gap_seconds": quality_metrics.get(
             "stock_index_api_gap_seconds"
         ),
+
         "market_session_verified": quality_result.get(
             "market_session_verified", False
         ),
+        "market_calendar_verified": False,
+        "market_freshness_verified": quality_result.get(
+            "market_freshness_verified",
+            False,
+        ),
+        "stock_market_session": stock_session,
+        "index_market_session": index_session,
         "independent_source_verified": False,
         "historically_validated": method.get(
             "historically_validated", False
         ),
         "limitations": list(state_result.get("limitations", [])),
-        "warnings": list(quality_result.get("warnings", [])),
+        "warnings": (
+            list(quality_result.get("warnings", []))
+            + session_warnings
+        ),
     }
+
+
+    research_applicability = assess_research_applicability(
+        basic_quality_gate=evidence_quality["basic_quality_gate"],
+        stock_session=stock_session,
+        index_session=index_session,
+        market_calendar_verified=evidence_quality[
+            "market_calendar_verified"
+        ],
+        market_session_verified=evidence_quality[
+            "market_session_verified"
+        ],
+        market_freshness_verified=evidence_quality[
+            "market_freshness_verified"
+        ],
+    )
+
 
     confidence_basis = {
         "label": "规则分类的证据充分度：初步",
@@ -185,7 +246,8 @@ def build_research_report(
             "基础数据质量门槛已通过。",
             "状态分类有明确、可检查的规则依据。",
             "当前阈值尚未经过历史回测验证。",
-            "交易时段和独立数据源尚未验证。",
+            "基础时段判断不等于官方交易日历验证；"
+            "行情新鲜度和独立数据源也尚未验证。",
             "现有指标不足以证明状态持续性或未来方向。",
         ],
         "interpretation": (
@@ -210,6 +272,7 @@ def build_research_report(
         "interpretations": interpretations,
         "hypotheses": hypotheses,
         "evidence_quality": evidence_quality,
+        "research_applicability": research_applicability,
         "confidence_basis": confidence_basis,
         "market_state": {
             "label": state_result["state"],

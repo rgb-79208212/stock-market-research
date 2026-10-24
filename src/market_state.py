@@ -147,27 +147,43 @@ def assess_market_state(
 
     evidence.append(f"分类依据：{rationale}")
 
-    if advance_ratio < BREADTH_POSITIVE_THRESHOLD:
-        next_bullish_condition = (
-            f"上涨占比升至 {BREADTH_POSITIVE_THRESHOLD:.0f}% 以上，"
-            "且至少两个主要指数上涨时，重新评估偏强分类。"
-        )
+    if state == "广泛偏强":
+        state_switch_conditions = [
+            f"上涨占比低于 {BREADTH_STRONG_THRESHOLD:.0f}%，"
+            f"或上涨指数少于两个时，重新评估当前分类。"
+        ]
+    elif state == "偏强":
+        state_switch_conditions = [
+            f"上涨占比低于 {BREADTH_POSITIVE_THRESHOLD:.0f}%，"
+            "或上涨指数少于两个时，重新评估当前分类。"
+        ]
+    elif state == "广泛偏弱":
+        state_switch_conditions = [
+            f"上涨占比高于 {BREADTH_WEAK_THRESHOLD:.0f}%，"
+            "或下跌指数少于两个时，重新评估当前分类。"
+        ]
+    elif state == "偏弱":
+        state_switch_conditions = [
+            f"上涨占比高于 {BREADTH_NEGATIVE_THRESHOLD:.0f}%，"
+            "或下跌指数少于两个时，重新评估当前分类。"
+        ]
+    elif state == "个股广度偏强，指数确认不足":
+        state_switch_conditions = [
+            f"至少两个主要指数上涨，或上涨占比低于 "
+            f"{BREADTH_POSITIVE_THRESHOLD:.0f}% 时，重新评估当前分类。"
+        ]
+    elif state == "个股广度偏弱，指数确认不足":
+        state_switch_conditions = [
+            f"至少两个主要指数下跌，或上涨占比高于 "
+            f"{BREADTH_NEGATIVE_THRESHOLD:.0f}% 时，重新评估当前分类。"
+        ]
     else:
-        next_bullish_condition = (
-            f"上涨占比跌至 {BREADTH_POSITIVE_THRESHOLD:.0f}% 以下，"
-            "或上涨指数少于两个时，重新评估偏强分类。"
-        )
-
-    if advance_ratio > BREADTH_NEGATIVE_THRESHOLD:
-        next_bearish_condition = (
-            f"上涨占比降至 {BREADTH_NEGATIVE_THRESHOLD:.0f}% 以下，"
-            "且至少两个主要指数下跌时，重新评估偏弱分类。"
-        )
-    else:
-        next_bearish_condition = (
-            f"上涨占比回到 {BREADTH_NEGATIVE_THRESHOLD:.0f}% 以上，"
-            "或下跌指数少于两个时，重新评估偏弱分类。"
-        )
+        state_switch_conditions = [
+            f"上涨占比达到 {BREADTH_POSITIVE_THRESHOLD:.0f}% "
+            "且至少两个主要指数上涨，或上涨占比降至 "
+            f"{BREADTH_NEGATIVE_THRESHOLD:.0f}% 及以下且至少两个"
+            "主要指数下跌时，重新评估分类。"
+        ]
 
     return {
         "state": state,
@@ -182,10 +198,7 @@ def assess_market_state(
             "unchanged_indices": unchanged_indices,
         },
         "index_results": index_results,
-        "state_switch_conditions": [
-            next_bullish_condition,
-            next_bearish_condition,
-        ],
+        "state_switch_conditions": state_switch_conditions,
         "limitations": limitations,
         "method": {
             "breadth_strong_threshold_pct": BREADTH_STRONG_THRESHOLD,

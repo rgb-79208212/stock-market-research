@@ -103,5 +103,69 @@ class TestResearchReport(unittest.TestCase):
             build_research_report(*inputs)
 
 
+
+    def test_report_records_market_session_and_calendar_limits(self):
+        inputs = self.make_inputs()
+        report = build_research_report(*inputs)
+
+        quality = report["evidence_quality"]
+
+        self.assertIn("stock_market_session", quality)
+        self.assertIn("index_market_session", quality)
+        self.assertFalse(quality["market_session_verified"])
+        self.assertFalse(quality["market_calendar_verified"])
+
+        self.assertTrue(
+            any(
+                "股票接口" in warning
+                for warning in quality["warnings"]
+            )
+        )
+        self.assertTrue(
+            any(
+                "指数接口" in warning
+                for warning in quality["warnings"]
+            )
+        )
+
+    def test_weekend_timestamp_is_recorded_as_non_trading_time(self):
+        inputs = list(self.make_inputs())
+
+        # 2026-10-24 07:55:07 北京时间，对应周六。
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        weekend_dt = datetime(
+            2026, 10, 24, 7, 55, 7,
+            tzinfo=ZoneInfo("Asia/Shanghai"),
+        )
+        weekend_timestamp_ms = int(
+            weekend_dt.timestamp() * 1000
+        )
+
+        inputs[0]["api_timestamp_ms"] = weekend_timestamp_ms
+        inputs[1]["api_timestamp_ms"] = weekend_timestamp_ms
+
+        report = build_research_report(*inputs)
+        quality = report["evidence_quality"]
+
+        self.assertEqual(
+            quality["stock_market_session"]["status"],
+            "周末（非交易日）",
+        )
+        self.assertEqual(
+            quality["index_market_session"]["status"],
+            "周末（非交易日）",
+        )
+        self.assertFalse(quality["market_calendar_verified"])
+        self.assertTrue(
+            any("周末" in warning for warning in quality["warnings"])
+        )
+
+
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -96,8 +96,74 @@ class TestAssessMarketState(unittest.TestCase):
         )
         self.assertTrue(result["evidence"])
         self.assertTrue(result["limitations"])
-        self.assertEqual(len(result["state_switch_conditions"]), 2)
+        self.assertEqual(len(result["state_switch_conditions"]), 1)
         self.assertFalse(result["method"]["historically_validated"])
+
+    def test_switch_conditions_match_current_state_thresholds(self):
+        cases = [
+            {
+                "advance": 75.0,
+                "indices": [1.2, 0.8, 0.3],
+                "expected_state": "广泛偏强",
+                "expected_text": "70%",
+            },
+            {
+                "advance": 69.9,
+                "indices": [1.2, 0.8, 0.3],
+                "expected_state": "偏强",
+                "expected_text": "55%",
+            },
+            {
+                "advance": 60.0,
+                "indices": [1.2, 0.8, -0.3],
+                "expected_state": "偏强",
+                "expected_text": "55%",
+            },
+            {
+                "advance": 20.0,
+                "indices": [-1.2, -0.8, -0.3],
+                "expected_state": "广泛偏弱",
+                "expected_text": "30%",
+            },
+            {
+                "advance": 40.0,
+                "indices": [-1.2, -0.8, -0.3],
+                "expected_state": "偏弱",
+                "expected_text": "45%",
+            },
+            {
+                "advance": 65.0,
+                "indices": [0.5, -0.2, 0.0],
+                "expected_state": "个股广度偏强，指数确认不足",
+                "expected_text": "55%",
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(state=case["expected_state"]):
+                breadth = {
+                    "advance_ratio_pct": case["advance"],
+                    "decline_ratio_pct": 100.0 - case["advance"],
+                    "valid_change_count": 5000,
+                }
+
+                result = assess_market_state(
+                    breadth,
+                    make_indices(case["indices"]),
+                )
+
+                self.assertEqual(
+                    result["state"],
+                    case["expected_state"],
+                )
+                self.assertEqual(
+                    len(result["state_switch_conditions"]),
+                    1,
+                )
+                self.assertIn(
+                    case["expected_text"],
+                    result["state_switch_conditions"][0],
+                )
 
 
 if __name__ == "__main__":

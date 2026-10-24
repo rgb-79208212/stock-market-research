@@ -15,6 +15,12 @@ from src.data_quality import assess_snapshot_quality
 from src.market_state import assess_market_state
 from src.research_report import build_research_report
 from src.llm_analysis import generate_llm_interpretation, LLMAnalysisError
+from src.market_session import assess_market_session
+from src.research_applicability import (
+    assess_research_applicability,
+)
+
+
 import hashlib
 import json
 
@@ -136,14 +142,14 @@ def timestamp_gap_seconds(timestamp_a, timestamp_b):
 # 数据获取
 # ============================================================
 
-st.subheader("实时行情")
+st.subheader("行情快照")
 
 st.write(
     "点击按钮获取全市场股票快照和三个主要指数的快照。"
     "股票全市场接口需要分页请求，获取过程可能需要一些时间。"
 )
 
-if st.button("获取最新行情", type="primary"):
+if st.button("获取行情快照", type="primary"):
     # 重新获取前清除旧结果，防止请求失败后沿用旧行情。
     for key in (
         "market_result",
@@ -187,6 +193,76 @@ if "index_error" in st.session_state:
 stock_result = st.session_state.get("market_result")
 index_result = st.session_state.get("index_result")
 
+
+# ============================================================
+# 基础交易时段检查
+# ============================================================
+
+if stock_result is not None or index_result is not None:
+    st.divider()
+    st.subheader("行情时间与交易时段检查")
+
+    st.caption(
+        "根据接口返回的时间戳判断基础时段；"
+        "本检查不等于交易所交易日历验证，也不能证明行情是最新的。"
+    )
+
+    session_sources = []
+
+    if stock_result is not None:
+        session_sources.append(
+            (
+                "股票接口",
+                stock_result.get("api_timestamp_ms"),
+            )
+        )
+
+    if index_result is not None:
+        session_sources.append(
+            (
+                "指数接口",
+                index_result.get("api_timestamp_ms"),
+            )
+        )
+
+    for source_name, timestamp_ms in session_sources:
+        session = assess_market_session(timestamp_ms)
+
+        st.markdown(f"**{source_name}**")
+        st.write(f"接口时间：{session['local_time'] or '无法确认'}")
+        st.write(f"基础时段判断：{session['status']}")
+        st.caption(session["detail"])
+
+        if session["status"] == "周末（非交易日）":
+            st.warning(
+                f"{source_name}的接口时间落在周末。"
+                "请勿将本次结果直接描述为交易时段实时行情。"
+            )
+        elif session["status"] == "无法判断":
+            st.warning(
+                f"{source_name}缺少有效时间戳，"
+                "无法完成基础交易时段判断。"
+            )
+        elif session["within_regular_session"]:
+            st.info(
+                f"{source_name}的时间处于常规连续交易时段范围内，"
+                "但尚未核验节假日、临时休市或行情新鲜度。"
+            )
+        else:
+            st.warning(
+                f"{source_name}的时间不在常规连续交易时段内。"
+                "这可能是盘前、午间休市或盘后数据。"
+            )
+
+    st.warning(
+        "本版本尚未接入官方交易日历。"
+        "接口时间戳可能是数据生成时间或接口处理时间，"
+        "不能单独证明行情对应的真实交易时点。"
+    )
+
+
+
+
 # 如果股票获取成功，但指数请求失败，传入无效哨兵值，
 # 让数据质量模块明确判定指数比较不可用。
 quality_index_result = index_result
@@ -217,7 +293,7 @@ if stock_result is not None:
 
 if stock_result is None and index_result is None:
     st.info(
-        "尚未获取本次会话的实时行情。点击上方按钮开始获取。"
+        "尚未获取本次会话的行情快照。点击上方按钮开始获取。"
         "API Key 不需要填写在页面中。"
     )
 
@@ -590,14 +666,67 @@ else:
             index_result["items"],
         )
 
-        st.markdown("#### 当前规则分类")
+        st.markdown("#### 本次快照规则分类")
 
         st.subheader(state_result["state"])
         st.write(state_result["rationale"])
-
         st.caption(
-            "这是对已获取快照的规则分类，不是对未来市场涨跌的预测。"
+            "这是对本次已获取快照的规则分类，不代表当前实时市场状态已确认，"
+            "也不代表该规则已通过历史回测。"
         )
+
+        # 快照阶段预检：用于提示当前数据的适用性限制。
+        # 最终报告阶段以 research_report["research_applicability"] 为准。
+        applicability = None
+
+        if (
+            isinstance(stock_result, dict)
+            and isinstance(index_result, dict)
+            and quality_result is not None
+            and not quality_error
+            and breadth_for_state is not None
+        ):
+            try:
+                applicability = assess_research_applicability(
+                    basic_quality_gate=(
+                        "passed"
+                        if quality_result.get("research_ready") is True
+                        else "failed"
+                    ),
+                    stock_session=assess_market_session(
+                        stock_result.get("api_timestamp_ms")
+                    ),
+                    index_session=assess_market_session(
+                        index_result.get("api_timestamp_ms")
+                    ),
+                    market_calendar_verified=quality_result.get(
+                        "market_calendar_verified", False
+                    ) is True,
+                    market_session_verified=quality_result.get(
+                        "market_session_verified", False
+                    ) is True,
+                    market_freshness_verified=quality_result.get(
+                        "market_freshness_verified", False
+                    ) is True,
+                )
+            except (ValueError, TypeError, KeyError) as exc:
+                st.warning(
+                    f"研究适用性判断暂时无法完成：{exc}"
+                )
+
+        if applicability is not None:
+            if applicability[
+                "current_snapshot_applicability_confirmed"
+            ]:
+                st.success(
+                    "当前快照时点条件已验证。"
+                    "这不代表规则已经通过历史回测。"
+                )
+            else:
+                st.warning(
+                    "当前市场状态尚未确认。以下仅展示本次快照的"
+                    "规则分类，不应视为已验证的实时市场状态。"
+                )
 
         st.markdown("#### 主要证据")
 
@@ -733,7 +862,7 @@ else:
         col1, col2, col3 = st.columns(3)
 
         col1.metric(
-            "规则分类",
+            "快照规则分类",
             research_report["market_state"]["label"],
         )
         col2.metric(
@@ -781,6 +910,9 @@ else:
         evidence_quality = research_report["evidence_quality"]
         evidence_time = research_report["evidence_time"]
 
+        stock_session = evidence_quality.get("stock_market_session", {})
+        index_session = evidence_quality.get("index_market_session", {})
+
         st.write(
             {
                 "股票接口时间（UTC）": evidence_time["stock_api_time_utc"],
@@ -793,14 +925,90 @@ else:
                 "股票与指数接口时间差（秒）": evidence_quality[
                     "stock_index_api_gap_seconds"
                 ],
+                "股票接口基础时段判断": stock_session.get(
+                    "status", "无法判断"
+                ),
+                "指数接口基础时段判断": index_session.get(
+                    "status", "无法判断"
+                ),
+                "官方交易日历已验证": evidence_quality.get(
+                    "market_calendar_verified", False
+                ),
                 "交易时段已验证": evidence_quality[
                     "market_session_verified"
                 ],
+                "行情新鲜度已验证": evidence_quality.get(
+                    "market_freshness_verified",
+                    False,
+                ),
                 "独立数据源已交叉验证": evidence_quality[
                     "independent_source_verified"
                 ],
             }
         )
+
+        # ============================================================
+        # 研究适用性判断
+        # ============================================================
+
+        st.markdown("#### 研究适用性判断")
+
+        applicability = research_report.get(
+            "research_applicability",
+            {},
+        )
+
+        if not applicability:
+            st.warning(
+                "当前报告没有研究适用性判断结果。"
+                "请检查 research_report.py 是否已接入该模块。"
+            )
+        else:
+            applicability_status = applicability.get(
+                "status",
+                "未知",
+            )
+
+            if applicability_status == "当前快照时点条件已验证":
+                st.success(applicability_status)
+
+            elif applicability_status == "时段适用性未确认":
+                st.warning(applicability_status)
+
+            else:
+                st.error(applicability_status)
+
+            st.caption(
+                "该判断用于说明本次快照是否具备相应的研究适用条件，"
+                "不代表规则经过历史回测，也不预测未来市场走势。"
+            )
+
+            st.write(
+                {
+                    "允许展示快照描述性统计": applicability.get(
+                        "snapshot_statistics_allowed",
+                        False,
+                    ),
+                    "当前快照适用性已确认": applicability.get(
+                        "current_snapshot_applicability_confirmed",
+                        False,
+                    ),
+                }
+            )
+
+            if applicability.get("reasons"):
+                st.markdown("**尚未满足或尚未验证的条件**")
+
+                for reason in applicability["reasons"]:
+                    st.markdown(f"- {reason}")
+
+            if applicability.get("limitations"):
+                st.markdown("**使用限制**")
+
+                for limitation in applicability["limitations"]:
+                    st.markdown(f"- {limitation}")
+
+
 
         if evidence_quality["warnings"]:
             st.markdown("**数据质量警告**")
@@ -849,6 +1057,10 @@ else:
             "hypotheses": research_report["hypotheses"],
             "evidence_time": research_report["evidence_time"],
             "evidence_quality": research_report["evidence_quality"],
+            "research_applicability": research_report.get(
+                "research_applicability",
+                {},
+            ),
         }
 
         llm_cache_key = hashlib.sha256(

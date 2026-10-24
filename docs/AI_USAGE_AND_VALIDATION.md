@@ -159,3 +159,31 @@ Local automated tests have passed as recorded above.
 A passing local test suite does not prove that the latest local commits have been pushed to the public repository or that a hosted Streamlit application is available and functioning.
 
 Public repository synchronization, credential-history review, and hosted deployment must be independently verified before the project is described as publicly deployed.
+
+## Additional Historical Data Validation (2026-10-24)
+
+### Scope and method
+
+A sample-level structural and trading-date consistency check was performed on historical daily records for six A-share stocks:
+
+- Kweichow Moutai (600519.SH)
+- Ping An Insurance (601318.SH)
+- Ping An Bank (000001.SZ)
+- Wuliangye (000858.SZ)
+- Contemporary Amperex Technology (300750.SZ)
+- BYD (002594.SZ)
+
+The retrieved sample for each stock contained 241 records, covering 2025-10-27 through 2026-10-23, with 241 unique dates.
+
+### Observed results
+
+- No invalid or duplicate dates were detected in these six samples.
+- No missing values were detected in the checked open, high, low, close, volume, and turnover fields.
+- Prices were positive; volume and turnover had no negative values.
+- No violations of the checked OHLC price relationships were detected.
+- The six stocks had matching date sets.
+- Their date sets matched the reference trading-date set obtained from AkShare's Sina-derived trading calendar over the same historical interval. No suspected missing dates or dates outside that reference calendar were detected.
+
+### Limitations
+
+This is a limited sample-level consistency check, not a market-wide completeness audit or an official exchange certification. The reference calendar is a third-party data source, not direct confirmation from the exchanges. These checks do not independently establish the numerical accuracy, adjustment methodology, corporate-action treatment, or real-time availability of every field. Results should not be interpreted as proof that all A-share instruments or all historical periods are complete and correct.
